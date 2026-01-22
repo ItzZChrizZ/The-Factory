@@ -4,31 +4,14 @@ import json
 from PIL import Image
 import io
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-# Sürüm kontrolü için
-import importlib.metadata
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
 
-# --- TANI ARACI (DEBUGGER AGENT) ---
-# Bu kısım sidebar'da gizli çalışır ve gerçek sürümü gösterir.
-try:
-    ai_version = importlib.metadata.version("google-generativeai")
-    st.sidebar.error(f"🔍 YÜKLÜ SDK SÜRÜMÜ: {ai_version}")
-    # Eğer sürüm 0.8.3'ten küçükse uyarı ver
-    if tuple(map(int, ai_version.split('.'))) < (0, 8, 3):
-        st.sidebar.warning("⚠️ SÜRÜM ESKİ! Reboot işe yaramamış.")
-    else:
-        st.sidebar.success("✅ Sürüm Güncel. Sorun başka yerde olabilir.")
-except:
-    st.sidebar.error("Kütüphane sürümü okunamadı!")
-
-
-# --- AUTO-THEME INDUSTRIAL UI ---
+# --- INDUSTRIAL UI CSS ---
 st.markdown("""
     <style>
-    /* Sidebar'ı sadece debug için görünür yapıyoruz */
-    /* [data-testid="stSidebar"] { display: none; } */
+    [data-testid="stSidebar"] { display: none; }
     header { visibility: hidden; }
     footer { visibility: hidden; }
     @media (prefers-color-scheme: dark) {
@@ -43,8 +26,7 @@ st.markdown("""
         h1, h2, h3 { color: #F7BE14; }
         .stButton button { background-color: #F7BE14; color: #F9FEFF; }
     }
-    .stButton button { border-radius: 4px; font-weight: 700; width: 100%; height: 4em; text-transform: uppercase; letter-spacing: 2px; transition: 0.3s; }
-    .stButton button:hover { opacity: 0.8; transform: translateY(-1px); }
+    .stButton button { border-radius: 4px; font-weight: 700; width: 100%; height: 4em; text-transform: uppercase; letter-spacing: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -52,9 +34,10 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    MODEL_ID = "imagen-4.0-generate-001"
+    # Listenizdeki en güçlü ve stabil model
+    MODEL_ID = "imagen-4.0-generate-001" 
 except Exception as e:
-    st.error("API Key missing. Please check Streamlit Secrets.")
+    st.error("API Key error. Check Streamlit Secrets.")
 
 # --- PRODUCTION INTERFACE ---
 st.title("Cine Lab: Production Factory")
@@ -64,7 +47,7 @@ col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
     st.subheader("JSON Recipe")
-    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "Sony A7R V", ...}')
+    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "85mm", ...}')
     generate_btn = st.button("RUN PRODUCTION")
 
 with col_out:
@@ -74,50 +57,58 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
+            # ANTI-PLASTIC ENGINE
             realism = (
-                "photorealistic, visible skin pores, natural skin micro-texture, "
-                "subtle imperfections, no digital airbrushing, high-frequency details, "
-                "authentic lens grain, physically accurate lighting falloff, 8k raw sensor quality."
+                "photorealistic, authentic skin texture, visible pores, "
+                "no digital smoothing, cinematic lighting, 8k raw resolution, "
+                "natural highlights, real lens grain."
             )
             
             master_prompt = (
-                f"Professional Fine Art Photography, style: {recipe.get('style', 'cinematic')}, "
+                f"Professional Photography, style: {recipe.get('style', 'high-end')}, "
                 f"Shot on {recipe.get('camera', 'medium format')}, "
                 f"Lens: {recipe.get('lens', 'prime lens')}, "
-                f"Lighting: {recipe.get('lighting', 'studio lighting')}, {realism}"
+                f"Lighting: {recipe.get('lighting', 'studio')}, {realism}"
             )
 
-            with st.spinner("Imagen 4.0 is processing the raw file..."):
-                # --- KRİTİK NOKTA: GÜNCEL SDK ÇAĞRISI ---
-                # Burası hata verirse aşağıdaki except ImportError yakalayacak
-                from google.generativeai import ImageGenerationModel
-                model = ImageGenerationModel(MODEL_ID)
+            with st.spinner("Factory is rendering with Imagen 4.0..."):
+                # ÇÖZÜM: Hiçbir özel sınıfa (ImageGenerationModel vb.) gerek duymayan ana metod
+                model = genai.GenerativeModel(MODEL_ID)
                 
-                response = model.generate_images(
-                    prompt=master_prompt,
-                    number_of_images=1,
-                    safety_filter_level="block_only_high",
-                    person_generation="allow_adult",
-                    aspect_ratio="1:1"
+                # Görsel üretimini standart içerik üretimi üzerinden tetikliyoruz
+                response = model.generate_content(
+                    master_prompt,
+                    safety_settings={
+                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                    }
                 )
                 
-                if response.images:
-                    image = response.images[0]._pil_image
-                    st.image(image, use_container_width=True)
-                    
-                    buf = io.BytesIO()
-                    image.save(buf, format="PNG")
-                    st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="factory_output.png", mime="image/png")
-                else:
-                    st.warning("Production halted: Safety engine flagged the recipe.")
+                # Görsel verisini blob (byte) olarak çekiyoruz
+                img_found = False
+                if response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        # Blob verisini kontrol et (inline_data)
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            img_bytes = part.inline_data.data
+                            image = Image.open(io.BytesIO(img_bytes))
+                            st.image(image, use_container_width=True)
+                            
+                            buf = io.BytesIO()
+                            image.save(buf, format="PNG")
+                            st.download_button("DOWNLOAD RAW OUTPUT", data=buf.getvalue(), file_name="production.png")
+                            img_found = True
+                            break
+                
+                if not img_found:
+                    st.warning("Production halted: The safety engine or model response did not return a valid image.")
 
-        except ImportError as e:
-            # GERÇEK HATAYI GÖSTEREN KISIM
-            st.error(f"🚨 KRİTİK SDK HATASI: {e}")
-            st.info("Sol üstteki oka tıklayıp Sidebar'ı aç. Orada yazan 'YÜKLÜ SDK SÜRÜMÜ' nedir? Eğer 0.8.3'ten düşükse, Streamlit önbelleği temizleyememiştir.")
         except Exception as e:
+            # 429 hatası gelirse kullanıcıyı bilgilendir
             if "429" in str(e):
-                st.error("Quota Exceeded: Please wait 60 seconds and try again.")
+                st.error("Quota Exceeded (429): Please wait 60 seconds. The factory is cooling down.")
             else:
                 st.error(f"Factory Halted (System Error): {e}")
     else:
