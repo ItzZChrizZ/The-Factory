@@ -3,6 +3,8 @@ import google.generativeai as genai
 import json
 from PIL import Image
 import io
+# Güvenlik ve Görsel Modelleri için gerekli kütüphaneler
+from google.generativeai import ImageGenerationModel
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- UI CONFIGURATION ---
@@ -34,10 +36,10 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Listenizdeki en güçlü ve stabil model
-    MODEL_ID = "imagen-4.0-generate-001" 
+    # Listenizdeki en kararlı Imagen 3 modeli
+    MODEL_ID = "imagen-3.0-generate-001" 
 except Exception as e:
-    st.error("API Key error. Check Streamlit Secrets.")
+    st.error("API Key missing. Please check Streamlit Secrets.")
 
 # --- PRODUCTION INTERFACE ---
 st.title("Cine Lab: Production Factory")
@@ -47,7 +49,7 @@ col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
     st.subheader("JSON Recipe")
-    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "85mm", ...}')
+    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "Sony A7R V", ...}')
     generate_btn = st.button("RUN PRODUCTION")
 
 with col_out:
@@ -57,59 +59,51 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC ENGINE
+            # ANTI-PLASTIC ENGINE (Cine Lab Standartları)
             realism = (
-                "photorealistic, authentic skin texture, visible pores, "
-                "no digital smoothing, cinematic lighting, 8k raw resolution, "
-                "natural highlights, real lens grain."
+                "photorealistic, visible skin pores, natural skin micro-texture, "
+                "no digital airbrushing, high-frequency details, "
+                "authentic lens grain, physically accurate lighting falloff, 8k raw sensor quality."
             )
             
             master_prompt = (
-                f"Professional Photography, style: {recipe.get('style', 'high-end')}, "
+                f"Professional Fine Art Photography, style: {recipe.get('style', 'cinematic')}, "
                 f"Shot on {recipe.get('camera', 'medium format')}, "
                 f"Lens: {recipe.get('lens', 'prime lens')}, "
-                f"Lighting: {recipe.get('lighting', 'studio')}, {realism}"
+                f"Lighting: {recipe.get('lighting', 'studio lighting')}, {realism}"
             )
 
-            with st.spinner("Factory is rendering with Imagen 4.0..."):
-                # ÇÖZÜM: Hiçbir özel sınıfa (ImageGenerationModel vb.) gerek duymayan ana metod
-                model = genai.GenerativeModel(MODEL_ID)
+            with st.spinner("Imagen 3.0 is rendering the raw file..."):
+                # --- DOĞRU METOT: ImageGenerationModel ÇAĞRISI ---
+                # Artık generate_content değil, generate_images kullanıyoruz
+                model = ImageGenerationModel(MODEL_ID)
                 
-                # Görsel üretimini standart içerik üretimi üzerinden tetikliyoruz
-                response = model.generate_content(
-                    master_prompt,
-                    safety_settings={
-                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                    }
+                response = model.generate_images(
+                    prompt=master_prompt,
+                    number_of_images=1,
+                    safety_filter_level="block_only_high",
+                    person_generation="allow_adult", # Fine Art Nude için izin
+                    aspect_ratio="1:1"
                 )
                 
-                # Görsel verisini blob (byte) olarak çekiyoruz
-                img_found = False
-                if response.candidates[0].content.parts:
-                    for part in response.candidates[0].content.parts:
-                        # Blob verisini kontrol et (inline_data)
-                        if hasattr(part, 'inline_data') and part.inline_data:
-                            img_bytes = part.inline_data.data
-                            image = Image.open(io.BytesIO(img_bytes))
-                            st.image(image, use_container_width=True)
-                            
-                            buf = io.BytesIO()
-                            image.save(buf, format="PNG")
-                            st.download_button("DOWNLOAD RAW OUTPUT", data=buf.getvalue(), file_name="production.png")
-                            img_found = True
-                            break
-                
-                if not img_found:
-                    st.warning("Production halted: The safety engine or model response did not return a valid image.")
+                if response.images:
+                    # Gelen görsel PIL formatında olduğu için doğrudan gösteriyoruz
+                    image = response.images[0]._pil_image
+                    st.image(image, use_container_width=True)
+                    
+                    # Kaydetme Butonu
+                    buf = io.BytesIO()
+                    image.save(buf, format="PNG")
+                    st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="factory_output.png", mime="image/png")
+                else:
+                    st.warning("Production halted: Safety engine flagged the recipe.")
 
         except Exception as e:
-            # 429 hatası gelirse kullanıcıyı bilgilendir
+            # 429 hatası (quota) kontrolü
             if "429" in str(e):
-                st.error("Quota Exceeded (429): Please wait 60 seconds. The factory is cooling down.")
+                st.error("Quota Exceeded: Lütfen 60 saniye bekleyip tekrar deneyin.")
             else:
                 st.error(f"Factory Halted (System Error): {e}")
+                st.info("İpucu: Eğer 'cannot import' hatası alırsan 'from google.generativeai import ImageGenerationModel' satırını kontrol et.")
     else:
         st.info("System Standby. Awaiting recipe for production.")
