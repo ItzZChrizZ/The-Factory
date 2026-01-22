@@ -3,6 +3,8 @@ import google.generativeai as genai
 import json
 from PIL import Image
 import io
+# Güvenlik ayarları için gerekli sınıf
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
@@ -38,12 +40,9 @@ st.markdown(f"""
 
 # --- SECURE API CONNECTION ---
 try:
-    # API Anahtarını Secrets'tan çek
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    
-    # DOĞRU MODEL SINIFI: ImageGenerationModel
-    # Model adı genellikle 'imagen-3.0-generate-001' veya 'imagen-3.0-generate-002' olur.
-    model_name = "imagen-3.0-generate-001" 
+    # 2026 en güncel Imagen 3 model ismi
+    model_id = "imagen-3.0-generate-001" 
 except Exception as e:
     st.error("System Error: API Configuration failed.")
 
@@ -55,7 +54,7 @@ col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
     st.subheader("JSON Recipe")
-    json_input = st.text_area("Paste Cine Lab technical data:", height=450, placeholder='{"camera": "85mm", ...}')
+    json_input = st.text_area("Paste Cine Lab technical data:", height=450)
     generate_btn = st.button("RUN PRODUCTION")
 
 with col_out:
@@ -65,51 +64,58 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC & REALISM ENGINE
-            realism_logic = (
-                "raw photography, visible skin pores, natural skin texture, subtle imperfections, "
-                "no airbrushing, high-frequency details, authentic lens grain, "
-                "physically accurate lighting falloff, 8k raw sensor quality, unedited look."
+            # ANTI-PLASTIC ENGINE
+            anti_plastic = (
+                "photorealistic, visible skin pores, natural skin texture, "
+                "subtle imperfections, no airbrushing, high-frequency details, "
+                "authentic lens grain, 8k raw sensor quality, unedited look."
             )
             
-            # Master Prompt
             master_prompt = (
-                f"Professional Fine Art Photography, style: {recipe.get('style', 'high-end artistic')}, "
+                f"Professional Fine Art Photography, style: {recipe.get('style', 'high-end')}, "
                 f"Shot on {recipe.get('camera', 'medium format')}, "
-                f"Lens: {recipe.get('lens', 'prime lens')}, "
-                f"Lighting: {recipe.get('lighting', 'cinematic lighting')}, "
+                f"Lens: {recipe.get('lens', 'prime')}, "
+                f"Lighting: {recipe.get('lighting', 'cinematic')}, "
                 f"Shadow depth: {recipe.get('shadow_density', 50)}%, "
-                f"Quality focus: {realism_logic}"
+                f"Quality focus: {anti_plastic}"
             )
 
-            with st.spinner("Nano Banana is rendering the raw file..."):
-                # GÜNCEL GÖRSEL ÜRETİM METODU
-                imagen_model = genai.ImageGenerationModel(model_name)
-                response = imagen_model.generate_images(
-                    prompt=master_prompt,
-                    number_of_images=1,
-                    # Güvenlik ayarlarını burada metod içinde yapıyoruz
-                    safety_filter_level="block_only_high",
-                    person_generation="allow_adult", # Fine Art Nude için kritik
-                    aspect_ratio="1:1"
+            with st.spinner("Nano Banana is processing..."):
+                # ÇÖZÜM: GenerativeModel kullanarak doğrudan görsel üretimi
+                model = genai.GenerativeModel(model_id)
+                # Görsel üretimi için generate_content yerine uygun parametreleri kullanıyoruz
+                response = model.generate_content(
+                    master_prompt,
+                    # Sanatsal özgürlük için güvenlik ayarları
+                    safety_settings={
+                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                    }
                 )
                 
-                if response.images:
-                    image = response.images[0]
-                    # Streamlit'te göstermek için PIL Image objesine çeviriyoruz
-                    st.image(image._pil_image, use_container_width=True)
-                    
-                    # Kaydetme butonu
-                    buf = io.BytesIO()
-                    image._pil_image.save(buf, format="PNG")
-                    st.download_button("DOWNLOAD RAW OUTPUT", data=buf.getvalue(), file_name="cine_production.png", mime="image/png")
+                # API yanıtından görseli çekme (2026 güncel SDK yapısı)
+                if response.candidates[0].content.parts:
+                    # Bazı SDK sürümlerinde görsel 'parts' içinde blob olarak gelir
+                    for part in response.candidates[0].content.parts:
+                        if part.inline_data:
+                            img_data = part.inline_data.data
+                            image = Image.open(io.BytesIO(img_data))
+                            st.image(image, use_container_width=True)
+                            
+                            # İndirme Butonu
+                            buf = io.BytesIO()
+                            image.save(buf, format="PNG")
+                            st.download_button("DOWNLOAD RAW OUTPUT", data=buf.getvalue(), file_name="factory_output.png", mime="image/png")
+                            break
                 else:
-                    st.warning("Production halted: No images were generated. Safety filters might be too strict.")
+                    st.warning("Production paused: Safety filters triggered or model response empty.")
                     
         except json.JSONDecodeError:
-            st.error("Error: Input must be a valid JSON format.")
+            st.error("Error: Invalid JSON.")
         except Exception as e:
             st.error(f"Factory Halted: {e}")
-            st.info("Tip: If model is not found, verify the model name (e.g., 'imagen-3.0-generate-001') in Google AI Studio.")
+            st.info("Check if your API Key has 'Imagen 3' access enabled in Google AI Studio.")
     else:
-        st.info("Production line standby. Please paste a recipe.")
+        st.info("System Standby. Awaiting recipe.")
