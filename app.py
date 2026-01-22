@@ -34,10 +34,10 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Listendeki tam ismi kullanıyoruz
-    MODEL_NAME = "nano-banana-pro-preview" 
+    # Listenizdeki en kararlı Imagen 4.0 modeli
+    MODEL_ID = "imagen-4.0-generate-001" 
 except Exception as e:
-    st.error("API Key error. Check Streamlit Secrets.")
+    st.error("API Key not found. Please check Streamlit Secrets.")
 
 # --- PRODUCTION INTERFACE ---
 st.title("Cine Lab: Production Factory")
@@ -57,57 +57,51 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC ENGINE
-            realism = "photorealistic, visible skin pores, natural skin texture, subtle imperfections, 8k raw sensor quality, no airbrushing."
+            # ANTI-PLASTIC ENGINE (V4.0 Optimized)
+            realism = (
+                "photorealistic, authentic skin pores, visible micro-textures, "
+                "raw sensor noise, no skin smoothing, 8k raw photography, "
+                "physically accurate lens bokeh, natural highlights."
+            )
+            
             master_prompt = (
-                f"Professional Fine Art Photography, style: {recipe.get('style', 'high-end')}, "
-                f"Shot on {recipe.get('camera', 'medium format')}, "
-                f"Lens: {recipe.get('lens', 'prime')}, "
-                f"Lighting: {recipe.get('lighting', 'cinematic')}, "
-                f"Technical details: {realism}"
+                f"Professional Photography, style: {recipe.get('style', 'high-end')}, "
+                f"Shot on {recipe.get('camera', 'full-frame')}, "
+                f"Lens: {recipe.get('lens', '85mm prime')}, "
+                f"Lighting: {recipe.get('lighting', 'studio')}, {realism}"
             )
 
-            with st.spinner("Nano Banana is rendering..."):
-                # En sağlam metot: Doğrudan GenerativeModel ile çağırıyoruz
-                model = genai.GenerativeModel(MODEL_NAME)
+            with st.spinner("Factory is rendering with Imagen 4.0..."):
+                # En güncel üretim metodu (ImageGenerationModel)
+                from google.generativeai import ImageGenerationModel
+                model = ImageGenerationModel(MODEL_ID)
                 
-                response = model.generate_content(
-                    master_prompt,
-                    safety_settings={
-                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                    }
+                response = model.generate_images(
+                    prompt=master_prompt,
+                    number_of_images=1,
+                    safety_filter_level="block_only_high",
+                    person_generation="allow_adult", # Fine Art Nude için kritik
+                    aspect_ratio="1:1"
                 )
                 
-                # Görseli yanıttan çekme (2026 SDK yapısı)
-                found_image = False
-                if response.candidates[0].content.parts:
-                    for part in response.candidates[0].content.parts:
-                        # Eğer part içinde image verisi varsa
-                        if hasattr(part, 'inline_data') and part.inline_data:
-                            img_bytes = part.inline_data.data
-                            image = Image.open(io.BytesIO(img_bytes))
-                            st.image(image, use_container_width=True)
-                            
-                            buf = io.BytesIO()
-                            image.save(buf, format="PNG")
-                            st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="output.png")
-                            found_image = True
-                            break
-                        # Bazı sürümlerde doğrudan .image olarak gelir
-                        elif hasattr(part, 'image') and part.image:
-                            st.image(part.image, use_container_width=True)
-                            found_image = True
-                            break
+                if response.images:
+                    # Gelen görseli göster ve indirme butonu koy
+                    image = response.images[0]._pil_image
+                    st.image(image, use_container_width=True)
+                    
+                    buf = io.BytesIO()
+                    image.save(buf, format="PNG")
+                    st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="cine_output.png")
+                else:
+                    st.warning("Production halted by safety filters.")
 
-                if not found_image:
-                    st.warning("Production halted: No image found in response. Possible safety block.")
-
-        except json.JSONDecodeError:
-            st.error("Error: Invalid JSON.")
+        except ImportError:
+            st.error("SDK Error: Please reboot Streamlit app to update libraries.")
         except Exception as e:
-            st.error(f"Factory Halted: {e}")
+            # 429 hatası gelirse kullanıcıya saniyeyi göster
+            if "429" in str(e):
+                st.error("Quota Exceeded: Please wait 60 seconds and try again.")
+            else:
+                st.error(f"Factory Halted: {e}")
     else:
         st.info("System Standby. Awaiting recipe.")
