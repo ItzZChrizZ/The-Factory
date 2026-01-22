@@ -3,13 +3,11 @@ import google.generativeai as genai
 import json
 from PIL import Image
 import io
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
 
 # --- AUTO-THEME & INDUSTRIAL UI CSS ---
-# Automatically handles light/dark mode and hides all UI clutter.
 st.markdown(f"""
     <style>
     [data-testid="stSidebar"] {{ display: none; }}
@@ -38,20 +36,14 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- SECURE API & SAFETY CONFIGURATION ---
+# --- SECURE API CONNECTION ---
 try:
-    # Key is retrieved from Streamlit Secrets for security
+    # API Anahtarını Secrets'tan çek
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    # Safety thresholds set to minimum to allow Fine Art Nude/Portrait work
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    }
-
-    model = genai.GenerativeModel(model_name='imagen-3', safety_settings=safety_settings)
+    # DOĞRU MODEL SINIFI: ImageGenerationModel
+    # Model adı genellikle 'imagen-3.0-generate-001' veya 'imagen-3.0-generate-002' olur.
+    model_name = "imagen-3.0-generate-001" 
 except Exception as e:
     st.error("System Error: API Configuration failed.")
 
@@ -73,16 +65,14 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # THE ANTI-PLASTIC & REALISM ENGINE
-            # This logic forces the AI to render imperfections (pores, grain, etc.)
+            # ANTI-PLASTIC & REALISM ENGINE
             realism_logic = (
                 "raw photography, visible skin pores, natural skin texture, subtle imperfections, "
                 "no airbrushing, high-frequency details, authentic lens grain, "
                 "physically accurate lighting falloff, 8k raw sensor quality, unedited look."
             )
             
-            # Constructing the Master Prompt
-            # Merging Cine Lab recipe with our Realism Engine
+            # Master Prompt
             master_prompt = (
                 f"Professional Fine Art Photography, style: {recipe.get('style', 'high-end artistic')}, "
                 f"Shot on {recipe.get('camera', 'medium format')}, "
@@ -92,23 +82,34 @@ with col_out:
                 f"Quality focus: {realism_logic}"
             )
 
-            with st.spinner("Nano Banana is processing the technical recipe..."):
-                response = model.generate_content(master_prompt)
+            with st.spinner("Nano Banana is rendering the raw file..."):
+                # GÜNCEL GÖRSEL ÜRETİM METODU
+                imagen_model = genai.ImageGenerationModel(model_name)
+                response = imagen_model.generate_images(
+                    prompt=master_prompt,
+                    number_of_images=1,
+                    # Güvenlik ayarlarını burada metod içinde yapıyoruz
+                    safety_filter_level="block_only_high",
+                    person_generation="allow_adult", # Fine Art Nude için kritik
+                    aspect_ratio="1:1"
+                )
                 
-                if hasattr(response, 'images') and response.images:
+                if response.images:
                     image = response.images[0]
-                    st.image(image, use_container_width=True)
+                    # Streamlit'te göstermek için PIL Image objesine çeviriyoruz
+                    st.image(image._pil_image, use_container_width=True)
                     
-                    # Download Logic
+                    # Kaydetme butonu
                     buf = io.BytesIO()
-                    image.save(buf, format="PNG")
+                    image._pil_image.save(buf, format="PNG")
                     st.download_button("DOWNLOAD RAW OUTPUT", data=buf.getvalue(), file_name="cine_production.png", mime="image/png")
                 else:
-                    st.warning("Production halted: Safety filters triggered. Try adjusting the artistic context in the recipe.")
+                    st.warning("Production halted: No images were generated. Safety filters might be too strict.")
                     
         except json.JSONDecodeError:
             st.error("Error: Input must be a valid JSON format.")
         except Exception as e:
             st.error(f"Factory Halted: {e}")
+            st.info("Tip: If model is not found, verify the model name (e.g., 'imagen-3.0-generate-001') in Google AI Studio.")
     else:
         st.info("Production line standby. Please paste a recipe.")
