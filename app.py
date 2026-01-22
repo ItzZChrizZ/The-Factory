@@ -34,10 +34,10 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Listenizdeki en kararlı Imagen 4.0 modeli
+    # Listenizdeki en stabil model ismi
     MODEL_ID = "imagen-4.0-generate-001" 
 except Exception as e:
-    st.error("API Key not found. Please check Streamlit Secrets.")
+    st.error("API Key error. Check Streamlit Secrets.")
 
 # --- PRODUCTION INTERFACE ---
 st.title("Cine Lab: Production Factory")
@@ -57,22 +57,22 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC ENGINE (V4.0 Optimized)
+            # ANTI-PLASTIC & REALISM ENGINE (Cine Lab Standard)
             realism = (
-                "photorealistic, authentic skin pores, visible micro-textures, "
-                "raw sensor noise, no skin smoothing, 8k raw photography, "
-                "physically accurate lens bokeh, natural highlights."
+                "photorealistic, visible skin pores, natural skin texture, "
+                "no digital smoothing, authentic lens grain, 8k raw quality, "
+                "natural lighting falloff, realistic highlights."
             )
             
             master_prompt = (
-                f"Professional Photography, style: {recipe.get('style', 'high-end')}, "
+                f"Professional Photography, style: {recipe.get('style', 'cinematic')}, "
                 f"Shot on {recipe.get('camera', 'full-frame')}, "
                 f"Lens: {recipe.get('lens', '85mm prime')}, "
                 f"Lighting: {recipe.get('lighting', 'studio')}, {realism}"
             )
 
-            with st.spinner("Factory is rendering with Imagen 4.0..."):
-                # En güncel üretim metodu (ImageGenerationModel)
+            with st.spinner("Imagen 4.0 is rendering..."):
+                # GÜNCEL ÜRETİM METODU
                 from google.generativeai import ImageGenerationModel
                 model = ImageGenerationModel(MODEL_ID)
                 
@@ -80,25 +80,24 @@ with col_out:
                     prompt=master_prompt,
                     number_of_images=1,
                     safety_filter_level="block_only_high",
-                    person_generation="allow_adult", # Fine Art Nude için kritik
+                    person_generation="allow_adult", # Sanatsal özgürlük için
                     aspect_ratio="1:1"
                 )
                 
                 if response.images:
-                    # Gelen görseli göster ve indirme butonu koy
+                    # Görseli göster ve kaydet
                     image = response.images[0]._pil_image
                     st.image(image, use_container_width=True)
                     
                     buf = io.BytesIO()
                     image.save(buf, format="PNG")
-                    st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="cine_output.png")
+                    st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="output.png")
                 else:
                     st.warning("Production halted by safety filters.")
 
         except ImportError:
-            st.error("SDK Error: Please reboot Streamlit app to update libraries.")
+            st.error("SDK Error: Please perform a 'Reboot' from the Streamlit Cloud dashboard.")
         except Exception as e:
-            # 429 hatası gelirse kullanıcıya saniyeyi göster
             if "429" in str(e):
                 st.error("Quota Exceeded: Please wait 60 seconds and try again.")
             else:
