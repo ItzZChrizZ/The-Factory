@@ -4,14 +4,31 @@ import json
 from PIL import Image
 import io
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+# Sürüm kontrolü için
+import importlib.metadata
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
 
+# --- TANI ARACI (DEBUGGER AGENT) ---
+# Bu kısım sidebar'da gizli çalışır ve gerçek sürümü gösterir.
+try:
+    ai_version = importlib.metadata.version("google-generativeai")
+    st.sidebar.error(f"🔍 YÜKLÜ SDK SÜRÜMÜ: {ai_version}")
+    # Eğer sürüm 0.8.3'ten küçükse uyarı ver
+    if tuple(map(int, ai_version.split('.'))) < (0, 8, 3):
+        st.sidebar.warning("⚠️ SÜRÜM ESKİ! Reboot işe yaramamış.")
+    else:
+        st.sidebar.success("✅ Sürüm Güncel. Sorun başka yerde olabilir.")
+except:
+    st.sidebar.error("Kütüphane sürümü okunamadı!")
+
+
 # --- AUTO-THEME INDUSTRIAL UI ---
 st.markdown("""
     <style>
-    [data-testid="stSidebar"] { display: none; }
+    /* Sidebar'ı sadece debug için görünür yapıyoruz */
+    /* [data-testid="stSidebar"] { display: none; } */
     header { visibility: hidden; }
     footer { visibility: hidden; }
     @media (prefers-color-scheme: dark) {
@@ -35,8 +52,7 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Senin listendeki en güncel Imagen 4.0 modeli
-    MODEL_ID = "imagen-4.0-generate-001" 
+    MODEL_ID = "imagen-4.0-generate-001"
 except Exception as e:
     st.error("API Key missing. Please check Streamlit Secrets.")
 
@@ -58,7 +74,6 @@ with col_out:
         try:
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC ENGINE (Cine Lab Standards)
             realism = (
                 "photorealistic, visible skin pores, natural skin micro-texture, "
                 "subtle imperfections, no digital airbrushing, high-frequency details, "
@@ -73,7 +88,8 @@ with col_out:
             )
 
             with st.spinner("Imagen 4.0 is processing the raw file..."):
-                # GÜNCEL SDK METODU
+                # --- KRİTİK NOKTA: GÜNCEL SDK ÇAĞRISI ---
+                # Burası hata verirse aşağıdaki except ImportError yakalayacak
                 from google.generativeai import ImageGenerationModel
                 model = ImageGenerationModel(MODEL_ID)
                 
@@ -86,7 +102,6 @@ with col_out:
                 )
                 
                 if response.images:
-                    # PIL formatına çevirip gösteriyoruz
                     image = response.images[0]._pil_image
                     st.image(image, use_container_width=True)
                     
@@ -96,12 +111,14 @@ with col_out:
                 else:
                     st.warning("Production halted: Safety engine flagged the recipe.")
 
-        except ImportError:
-            st.error("SDK Error: Please perform a 'Reboot' from the Streamlit Cloud dashboard.")
+        except ImportError as e:
+            # GERÇEK HATAYI GÖSTEREN KISIM
+            st.error(f"🚨 KRİTİK SDK HATASI: {e}")
+            st.info("Sol üstteki oka tıklayıp Sidebar'ı aç. Orada yazan 'YÜKLÜ SDK SÜRÜMÜ' nedir? Eğer 0.8.3'ten düşükse, Streamlit önbelleği temizleyememiştir.")
         except Exception as e:
             if "429" in str(e):
                 st.error("Quota Exceeded: Please wait 60 seconds and try again.")
             else:
-                st.error(f"Factory Halted: {e}")
+                st.error(f"Factory Halted (System Error): {e}")
     else:
         st.info("System Standby. Awaiting recipe for production.")
