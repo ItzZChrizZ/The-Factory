@@ -1,86 +1,104 @@
 import streamlit as st
+import subprocess
+import sys
+
+# --- 1. KABA KUVVET: Kütüphaneyi Zorla Güncelleme ---
+# Streamlit önbelleğini delmek için uygulama başlarken pip install çalıştırıyoruz.
+try:
+    # Bu komut terminalde 'pip install --upgrade google-generativeai' yazmakla aynıdır
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai>=0.8.3"])
+except Exception as e:
+    st.error(f"Güncelleme Hatası: {e}")
+
+# Kütüphane güncellendikten sonra import ediyoruz
 import google.generativeai as genai
 import json
 from PIL import Image
 import io
-from google.generativeai import ImageGenerationModel
 
-st.set_page_config(page_title="Cine Lab: Diagnostic Mode", layout="wide")
-st.title("🛠️ Cine Lab: Hata Tespit Modu")
+# --- UI AYARLARI ---
+st.set_page_config(page_title="Cine Lab: Force Fix", layout="wide")
 
-# 1. API Bağlantısı
+# --- CSS ---
+st.markdown("""
+    <style>
+    [data-testid="stSidebar"] { display: none; }
+    .stApp { background-color: #222121; color: #F9FEFF; }
+    .stButton button { background-color: #F7BE14; color: #222121; font-weight: bold; height: 3em; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- API BAĞLANTISI ---
 try:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        st.success("✅ API Anahtarı Algılandı")
     else:
-        st.error("❌ API Anahtarı Secrets içinde yok!")
-        st.stop()
+        st.error("API Key bulunamadı.")
 except Exception as e:
-    st.error(f"❌ API Bağlantı Hatası: {e}")
-    st.stop()
+    st.error(f"Bağlantı Hatası: {e}")
 
-# 2. Test Arayüzü
-col1, col2 = st.columns(2)
+# Listendeki en güçlü model (Bunu teyit etmiştik)
+MODEL_ID = "imagen-4.0-generate-001"
 
-with col1:
-    st.subheader("Model Seçimi")
-    # Listendeki modelleri manuel ekledim
-    selected_model = st.selectbox(
-        "Test edilecek modeli seç:",
-        [
-            "imagen-4.0-generate-001",
-            "imagen-3.0-generate-001",
-            "imagen-4.0-generate-preview-06-06"
-        ]
-    )
-    
-    st.subheader("Prompt")
-    test_prompt = st.text_area("Test Prompt", "A cinematic apple on a table, 8k lighting, photorealistic")
-    
-    run_btn = st.button("TEST ÜRETİMİ YAP")
+st.title("🏭 Cine Lab: Fabrika (Force Update Modu)")
+st.caption(f"Aktif Model: {MODEL_ID}")
 
-with col2:
-    st.subheader("Sonuç / Hata Kaydı")
-    
-    if run_btn:
-        status_container = st.empty()
-        status_container.info(f"⏳ {selected_model} ile bağlanılıyor...")
-        
+col_in, col_out = st.columns([1, 1.5], gap="large")
+
+with col_in:
+    json_input = st.text_area("JSON Reçetesi:", height=300, value='{"style": "Cinematic", "camera": "Sony A7R", "lens": "85mm"}')
+    generate_btn = st.button("ÜRETİMİ BAŞLAT")
+
+with col_out:
+    if generate_btn:
         try:
-            # En yalın haliyle çağırıyoruz (Parametre hatası varsa elemeyi sağlar)
-            model = ImageGenerationModel(selected_model)
+            recipe = json.loads(json_input)
             
-            response = model.generate_images(
-                prompt=test_prompt,
-                number_of_images=1,
-                # Hata ihtimalini düşürmek için bunları varsayılan bırakıyorum
-                # safety_filter_level="block_only_high", 
-                # person_generation="allow_adult",
-                aspect_ratio="1:1"
+            # Anti-Plastic Prompt
+            master_prompt = (
+                f"Professional Fine Art Photography, {recipe.get('style', '')}, "
+                f"{recipe.get('camera', '')}, {recipe.get('lens', '')}, "
+                f"photorealistic, visible skin pores, natural texture, 8k raw quality, no airbrushing."
             )
-            
-            if response.images:
-                st.success(f"✅ BAŞARILI! Model: {selected_model}")
-                st.image(response.images[0]._pil_image, caption="Üretilen Görsel")
-                status_container.empty()
-            else:
-                st.warning("⚠️ Yanıt boş döndü (Görsel oluşturulamadı).")
 
+            with st.spinner("Kütüphane kontrol ediliyor ve görsel üretiliyor..."):
+                # --- KRİTİK DEĞİŞİKLİK ---
+                # Hata veren 'from google... import ImageGenerationModel' satırını sildik.
+                # Yerine, güncellenmiş ana kütüphane içinden çağırıyoruz.
+                try:
+                    # Yeni sürümde bu sınıf genai'nin altında olmalı
+                    if hasattr(genai, "ImageGenerationModel"):
+                        model = genai.ImageGenerationModel(MODEL_ID)
+                    else:
+                        # Eğer hala bulamazsa manuel import deneriz
+                        from google.generativeai import ImageGenerationModel
+                        model = ImageGenerationModel(MODEL_ID)
+
+                    response = model.generate_images(
+                        prompt=master_prompt,
+                        number_of_images=1,
+                        # Güvenlik parametrelerini şimdilik kapattım, önce çalıştığını görelim
+                        aspect_ratio="1:1"
+                    )
+                    
+                    if response.images:
+                        image = response.images[0]._pil_image
+                        st.image(image, use_container_width=True)
+                        
+                        buf = io.BytesIO()
+                        image.save(buf, format="PNG")
+                        st.download_button("İNDİR", data=buf.getvalue(), file_name="output.png", mime="image/png")
+                    else:
+                        st.warning("Görsel üretilemedi (Boş yanıt).")
+
+                except ImportError:
+                    st.error("Kütüphane hala eski sürümde! 'Force Update' işe yaramadı.")
+                except Exception as inner_e:
+                    st.error(f"Model Hatası: {inner_e}")
+                    if "404" in str(inner_e):
+                        st.info("İpucu: Model ID hatası. Lütfen API Key yetkilerini kontrol et.")
+
+        except json.JSONDecodeError:
+            st.error("HATA: JSON bozuk.")
         except Exception as e:
-            # İŞTE BURASI: Hatayı ekrana tam olarak yazdıracak
-            st.error("🚨 ÜRETİM HATASI OLUŞTU!")
-            st.code(str(e), language="bash")
-            
-            st.markdown("### Hata Analizi:")
-            err_msg = str(e)
-            if "404" in err_msg:
-                st.write("👉 **Sebep:** Model ismi bulunamadı veya API anahtarının bu modele yetkisi yok.")
-            elif "400" in err_msg:
-                st.write("👉 **Sebep:** Gönderilen parametreler hatalı (örn: aspect_ratio veya safety ayarları).")
-            elif "429" in err_msg:
-                st.write("👉 **Sebep:** Kota doldu (Quota Exceeded).")
-            elif "500" in err_msg:
-                st.write("👉 **Sebep:** Google sunucularında geçici hata.")
-            else:
-                st.write("👉 **Sebep:** Beklenmeyen bir kütüphane veya yetki hatası.")
+            st.error(f"SİSTEM HATASI: {e}")
