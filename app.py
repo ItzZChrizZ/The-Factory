@@ -3,14 +3,13 @@ import google.generativeai as genai
 import json
 from PIL import Image
 import io
-# Güvenlik ve Görsel Modelleri için gerekli kütüphaneler
+# Görsel üretimi için gerekli özel sınıf
 from google.generativeai import ImageGenerationModel
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
 
-# --- INDUSTRIAL UI CSS ---
+# --- CSS / TEMA ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
@@ -32,16 +31,20 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- SECURE API SETUP ---
+# --- API AYARLARI ---
+# Hata oluşursa loading ekranında kalmaması için try-except bloğu
 try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
-    # Listenizdeki en kararlı Imagen 3 modeli
-    MODEL_ID = "imagen-3.0-generate-001" 
+    if "GEMINI_API_KEY" in st.secrets:
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    else:
+        st.error("API Key bulunamadı! Lütfen Streamlit Secrets ayarlarını kontrol et.")
 except Exception as e:
-    st.error("API Key missing. Please check Streamlit Secrets.")
+    st.error(f"API Bağlantı Hatası: {e}")
 
-# --- PRODUCTION INTERFACE ---
+# Model İsmi (Listendeki en kararlı model)
+MODEL_ID = "imagen-3.0-generate-001"
+
+# --- ARAYÜZ ---
 st.title("Cine Lab: Production Factory")
 st.markdown("---")
 
@@ -49,7 +52,12 @@ col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
     st.subheader("JSON Recipe")
-    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "Sony A7R V", ...}')
+    # Örnek JSON ile başla ki kullanıcı ne yapıştıracağını bilsin
+    json_input = st.text_area(
+        "Paste technical data:", 
+        height=450, 
+        placeholder='{"camera": "Sony A7R V", "lens": "85mm", "style": "Cinematic"}'
+    )
     generate_btn = st.button("RUN PRODUCTION")
 
 with col_out:
@@ -57,53 +65,56 @@ with col_out:
     
     if generate_btn and json_input:
         try:
+            # 1. JSON Analizi
             recipe = json.loads(json_input)
             
-            # ANTI-PLASTIC ENGINE (Cine Lab Standartları)
-            realism = (
-                "photorealistic, visible skin pores, natural skin micro-texture, "
-                "no digital airbrushing, high-frequency details, "
-                "authentic lens grain, physically accurate lighting falloff, 8k raw sensor quality."
+            # 2. Anti-Plastic Prompt Motoru
+            realism_specs = (
+                "photorealistic, visible skin pores, natural skin texture, "
+                "no digital smoothing, authentic lens grain, 8k raw quality, "
+                "imperfect skin details, realistic lighting falloff."
             )
             
             master_prompt = (
                 f"Professional Fine Art Photography, style: {recipe.get('style', 'cinematic')}, "
                 f"Shot on {recipe.get('camera', 'medium format')}, "
                 f"Lens: {recipe.get('lens', 'prime lens')}, "
-                f"Lighting: {recipe.get('lighting', 'studio lighting')}, {realism}"
+                f"Lighting: {recipe.get('lighting', 'studio lighting')}, {realism_specs}"
             )
 
-            with st.spinner("Imagen 3.0 is rendering the raw file..."):
-                # --- DOĞRU METOT: ImageGenerationModel ÇAĞRISI ---
-                # Artık generate_content değil, generate_images kullanıyoruz
+            with st.spinner(f"Rendering with {MODEL_ID}..."):
+                # 3. Görsel Üretimi (Doğru Sınıf ve Metot)
                 model = ImageGenerationModel(MODEL_ID)
                 
                 response = model.generate_images(
                     prompt=master_prompt,
                     number_of_images=1,
-                    safety_filter_level="block_only_high",
-                    person_generation="allow_adult", # Fine Art Nude için izin
+                    # Güvenlik Filtreleri (Fine Art için ayarlı)
+                    safety_filter_level="block_only_high", 
+                    person_generation="allow_adult",
                     aspect_ratio="1:1"
                 )
                 
+                # 4. Sonuç Gösterimi
                 if response.images:
-                    # Gelen görsel PIL formatında olduğu için doğrudan gösteriyoruz
                     image = response.images[0]._pil_image
                     st.image(image, use_container_width=True)
                     
-                    # Kaydetme Butonu
+                    # İndirme
                     buf = io.BytesIO()
                     image.save(buf, format="PNG")
                     st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="factory_output.png", mime="image/png")
                 else:
-                    st.warning("Production halted: Safety engine flagged the recipe.")
+                    st.warning("Üretim durduruldu (Güvenlik filtresi veya boş yanıt).")
 
+        except json.JSONDecodeError:
+            st.error("HATA: Geçersiz JSON formatı. Lütfen Cine Lab çıktısını kontrol et.")
         except Exception as e:
-            # 429 hatası (quota) kontrolü
+            # Hata detayını gösterelim ki loading'de kalmasın
+            st.error(f"SİSTEM HATASI: {e}")
             if "429" in str(e):
-                st.error("Quota Exceeded: Lütfen 60 saniye bekleyip tekrar deneyin.")
-            else:
-                st.error(f"Factory Halted (System Error): {e}")
-                st.info("İpucu: Eğer 'cannot import' hatası alırsan 'from google.generativeai import ImageGenerationModel' satırını kontrol et.")
+                st.info("Limit aşıldı (Quota Exceeded). Lütfen 1 dakika bekleyip tekrar dene.")
+            elif "404" in str(e):
+                st.info(f"Model bulunamadı: {MODEL_ID}. API Key yetkilerini kontrol et.")
     else:
-        st.info("System Standby. Awaiting recipe for production.")
+        st.info("Sistem Hazır. Reçete bekleniyor.")
