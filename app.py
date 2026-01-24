@@ -15,7 +15,6 @@ st.title("🍌 Nano Banana: Filtresiz Üretim İstasyonu")
 st.markdown("Cinelab promptunu yapıştır, filtresiz (BLOCK_NONE) olarak üret.")
 
 # --- Güvenlik Ayarları (FİLTRELERİ KALDIRMA) ---
-# Tüm güvenlik kategorileri için eşiği "BLOCK_NONE" yapıyoruz.
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -23,21 +22,44 @@ no_filter_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- Yardımcı Fonksiyon: Görsel Verisi Kontrolü ---
-def try_extract_image(response_obj):
-    """Yanıtta görsel verisi varsa ayıklar (Geleceğe yönelik hazırlık)."""
-    try:
-        # Bu yapı modelden modele değişebilir, genel bir deneme yapıyoruz.
-        if hasattr(response_obj, 'parts'):
-             for part in response_obj.parts:
-                 if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
-                     image_bytes = part.inline_data.data
-                     img = Image.open(io.BytesIO(image_bytes))
-                     # MIME type (örn: image/png) ve raw bytes döndür
-                     return img, image_bytes, part.inline_data.mime_type
-    except Exception:
-        return None, None, None
-    return None, None, None
+# --- Yardımcı Fonksiyon: Güvenli Veri Ayıklama ---
+def safe_extract_response(response):
+    """Yanıttan metin veya görseli hatasız çıkarmaya çalışır."""
+    image_data = None
+    text_data = None
+    mime_type = None
+    
+    # 1. Parça (Parts) kontrolü
+    if not hasattr(response, 'parts') or not response.parts:
+        # Bazen parts boş olabilir ama candidates dolu olabilir
+        if hasattr(response, 'candidates') and response.candidates:
+            parts = response.candidates[0].content.parts
+        else:
+            return None, None, None
+    else:
+        parts = response.parts
+
+    # 2. Parçaları Tara
+    for part in parts:
+        # GÖRSEL KONTROLÜ
+        if hasattr(part, 'inline_data') and hasattr(part.inline_data, 'mime_type'):
+            if part.inline_data.mime_type.startswith('image/'):
+                try:
+                    img_bytes = part.inline_data.data
+                    img = Image.open(io.BytesIO(img_bytes))
+                    image_data = (img, img_bytes)
+                    mime_type = part.inline_data.mime_type
+                    return image_data, None, mime_type # Görsel bulursak hemen dön
+                except:
+                    pass
+        
+        # METİN KONTROLÜ
+        if hasattr(part, 'text') and part.text:
+            text_data = part.text
+
+    # Eğer döngü bitti ve görsel yoksa, metni döndür (varsa)
+    return None, text_data, "text/plain"
+
 
 # --- Sidebar: Ayarlar ---
 with st.sidebar:
@@ -90,57 +112,54 @@ if generate_btn:
     if not api_key or not selected_model or not user_prompt:
         st.warning("Lütfen API Key, Model ve Prompt alanlarını doldur.")
     else:
-        # Hata yakalama bloğu
         try:
-            with st.spinner(f"{selected_model} filtresiz çalışıyor..."):
-                # Yapılandırma
+            with st.spinner(f"{selected_model} çalışıyor..."):
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel(selected_model)
                 
-                # Üretim İsteği (Güvenlik ayarları eklendi)
+                # İsteği Gönder
                 response = model.generate_content(
                     user_prompt,
                     safety_settings=no_filter_settings
                 )
                 
-                # --- SONUÇ İŞLEME ---
-                
-                # 1. Görsel Kontrolü Yap
-                generated_image_obj, raw_bytes, mime_type = try_extract_image(response)
+                # --- YENİ GÜVENLİ İŞLEME ---
+                image_res, text_res, mime = safe_extract_response(response)
 
-                if generated_image_obj:
-                    st.success("Görsel başarıyla oluşturuldu!")
-                    # Görseli göster
-                    st.image(generated_image_obj, caption="Nano Banana Çıktısı", use_column_width=True)
+                # 1. GÖRSEL VARSA
+                if image_res:
+                    img_obj, raw_bytes = image_res
+                    st.success("✨ Görsel Oluşturuldu!")
+                    st.image(img_obj, caption="Nano Banana Output", use_column_width=True)
                     
-                    # Kaydetme Butonu (Dosya uzantısını MIME type'tan tahmin et)
-                    ext = mime_type.split('/')[-1] if mime_type else "png"
+                    ext = mime.split('/')[-1] if mime else "png"
                     st.download_button(
-                        label=f"💾 Görseli Kaydet ({ext.upper()})",
+                        "💾 Görseli Kaydet",
                         data=raw_bytes,
-                        file_name=f"nano_banana_result.{ext}",
-                        mime=mime_type
+                        file_name=f"nano_banana.{ext}",
+                        mime=mime
                     )
-
-                # 2. Görsel yoksa, Metin Kontrolü Yap
-                elif hasattr(response, 'text') and response.text:
-                    st.success("Metin başarıyla oluşturuldu.")
-                    st.markdown("### 📄 Metin Çıktısı:")
-                    st.write(response.text)
+                
+                # 2. METİN VARSA
+                elif text_res:
+                    st.success("📄 Metin Oluşturuldu")
+                    st.write(text_res)
                     st.download_button(
-                        label="💾 Metni İndir (TXT)",
-                        data=response.text,
-                        file_name="nano_banana_text.txt",
+                        "💾 Metni İndir",
+                        data=text_res,
+                        file_name="output.txt",
                         mime="text/plain"
                     )
-                
-                # 3. Ne görsel ne metin varsa ham yanıtı göster
+
+                # 3. HİÇBİRİ YOKSA
                 else:
-                    st.warning("Model bir çıktı döndürdü ancak standart metin veya görsel formatında değil. Ham yanıt aşağıdadır:")
-                    st.write(response)
+                    st.info("İşlem bitti ancak görüntülenecek veri bulunamadı.")
+                    st.markdown("**Teknik Detaylar:**")
+                    st.json({
+                        "finish_reason": response.candidates[0].finish_reason if response.candidates else "Unknown",
+                        "parts_found": False
+                    })
 
         except Exception as e:
-            # İstenilen HAM HATA GÖSTERİMİ
-            st.error("🚨 KRİTİK HATA OLUŞTU!")
-            st.markdown("Aşağıdaki hata mesajını inceleyin:")
-            st.code(str(e), language="bash") # Hatayı kod bloğu içinde ham olarak göster
+            st.error("Bir hata oluştu:")
+            st.code(str(e))
