@@ -1,111 +1,110 @@
 import streamlit as st
 import requests
 import json
-import base64
-from PIL import Image
 import io
+from PIL import Image
+import urllib.parse
+import random
 
 # --- UI AYARLARI ---
-st.set_page_config(page_title="Cine Lab: Direct Link", layout="wide")
+st.set_page_config(page_title="Cine Lab: Free Edition", layout="wide")
 
-# --- CSS ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
-    .stApp { background-color: #222121; color: #F9FEFF; }
-    .stButton button { background-color: #F7BE14; color: #222121; font-weight: bold; height: 3em; }
+    .stApp { background-color: #121212; color: #e0e0e0; }
+    .stTextArea textarea { background-color: #1e1e1e; color: #fff; border: 1px solid #333; }
+    .stButton button { 
+        background-color: #00D4FF; 
+        color: #000; 
+        font-weight: bold; 
+        height: 3.5em; 
+        border: none;
+        transition: 0.3s;
+    }
+    .stButton button:hover { background-color: #00aabb; color: #fff; }
+    h1, h2, h3 { color: #00D4FF; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- API BAĞLANTISI ---
-# Burada SDK kullanmıyoruz, sadece anahtarı alıyoruz.
-api_key = st.secrets.get("GEMINI_API_KEY")
-if not api_key:
-    st.error("🚨 API Key bulunamadı! Secrets ayarlarını kontrol et.")
-    st.stop()
-
-# --- BYPASS FONKSİYONU (REST API) ---
-def generate_image_bypass(prompt, model_id, key):
-    # Google'ın ham API adresi (SDK kullanmadan direkt erişim)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:predict?key={key}"
+# --- ÜCRETSİZ MOTOR FONKSİYONU ---
+def generate_free_image(prompt):
+    # Google yerine Pollinations (Flux Realism) kullanıyoruz.
+    # Bu servis tamamen ücretsizdir ve API Key istemez.
     
-    headers = {"Content-Type": "application/json"}
+    # Promptu URL için güvenli hale getir
+    encoded_prompt = urllib.parse.quote(prompt)
     
-    # İstek paketi (JSON)
-    payload = {
-        "instances": [
-            {"prompt": prompt}
-        ],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": "1:1"
-        }
-    }
+    # Rastgele bir seed ekle ki her seferinde aynı resim çıkmasın
+    seed = random.randint(0, 10000)
     
-    # Postacıya veriyoruz (Requests)
-    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    # FLUX Modeli: Şu an gerçekçilikte en iyi ücretsiz modellerden biridir
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=flux&width=1024&height=1024&seed={seed}&nologo=true"
     
-    if response.status_code != 200:
-        raise Exception(f"Google Reddedildi ({response.status_code}): {response.text}")
+    response = requests.get(url)
     
-    # Gelen paketi açıyoruz
-    result = response.json()
-    
-    # Görsel verisini (Base64) çözüyoruz
-    try:
-        predictions = result.get('predictions', [])
-        if predictions:
-            # Base64 string'i görsel verisine çevir
-            b64_data = predictions[0]['bytesBase64Encoded']
-            image_data = base64.b64decode(b64_data)
-            return Image.open(io.BytesIO(image_data))
-        else:
-            return None
-    except Exception as e:
-        raise Exception(f"Paket Açma Hatası: {e} - Yanıt: {result}")
+    if response.status_code == 200:
+        return Image.open(io.BytesIO(response.content))
+    else:
+        raise Exception(f"Sunucu Hatası: {response.status_code}")
 
 # --- ARAYÜZ ---
-st.title("🏭 Cine Lab: Direct Uplink (SDK-Free)")
-st.caption("Aracı kütüphane devre dışı. Doğrudan Google sunucularına bağlanılıyor.")
+st.title("🏭 Cine Lab: Free Factory")
+st.caption("Motor: FLUX Realism (Ücretsiz & Kartsız)")
+st.markdown("---")
 
 col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
-    # Model Seçimi (Listendeki modeller)
-    model_choice = st.selectbox("Model Seç:", ["imagen-3.0-generate-001", "imagen-4.0-generate-001"])
-    
-    json_input = st.text_area("JSON Reçetesi:", height=300, value='{"style": "Cinematic", "camera": "Sony A7R", "lens": "85mm"}')
-    generate_btn = st.button("ÜRETİMİ BAŞLAT")
+    st.subheader("JSON Recipe")
+    # Kullanıcıya örnek bir reçete gösterelim
+    default_json = '{\n "style": "Cinematic Portrait",\n "camera": "Fujifilm GFX 100",\n "lens": "110mm f/2",\n "lighting": "Rembrandt lighting"\n}'
+    json_input = st.text_area("Paste technical data:", height=400, value=default_json)
+    generate_btn = st.button("ÜRETİMİ BAŞLAT (BEDAVA)")
 
 with col_out:
-    if generate_btn:
+    st.subheader("Factory Output")
+    
+    if generate_btn and json_input:
         try:
             recipe = json.loads(json_input)
             
-            # Anti-Plastic Prompt
+            # Anti-Plastic Prompt (FLUX Modeli için optimize edildi)
+            # Flux, doğal dili çok iyi anlar.
+            realism_specs = (
+                "hyper-realistic photography, raw photo, authentic skin texture, "
+                "visible pores, peach fuzz, slight skin imperfections, "
+                "depth of field, bokeh, soft studio lighting, 8k uhd, "
+                "shot on medium format, no cgi, no 3d render, natural film grain."
+            )
+            
             master_prompt = (
-                f"Professional Fine Art Photography, {recipe.get('style', '')}, "
-                f"{recipe.get('camera', '')}, {recipe.get('lens', '')}, "
-                f"photorealistic, visible skin pores, natural texture, 8k raw quality, no airbrushing."
+                f"{recipe.get('style', 'Photo')}, "
+                f"Camera: {recipe.get('camera', 'Professional Camera')}, "
+                f"Lens: {recipe.get('lens', 'Prime Lens')}, "
+                f"Lighting: {recipe.get('lighting', 'Natural')}. "
+                f"{realism_specs}"
             )
 
-            with st.spinner(f"{model_choice} ile doğrudan bağlantı kuruluyor..."):
-                # BYPASS FONKSİYONUNU ÇAĞIRIYORUZ
-                image = generate_image_bypass(master_prompt, model_choice, api_key)
+            with st.spinner("FLUX Motoru çalışıyor (Kredi kartı gerekmez)..."):
+                # Ücretsiz fonksiyonu çağırıyoruz
+                image = generate_free_image(master_prompt)
                 
                 if image:
                     st.image(image, use_container_width=True)
                     
                     buf = io.BytesIO()
                     image.save(buf, format="PNG")
-                    st.download_button("İNDİR", data=buf.getvalue(), file_name="output.png", mime="image/png")
+                    st.download_button(
+                        label="GÖRSELİ İNDİR",
+                        data=buf.getvalue(),
+                        file_name="cine_lab_flux.png",
+                        mime="image/png"
+                    )
                 else:
-                    st.warning("Görsel oluşturulamadı (Boş yanıt).")
+                    st.error("Görsel oluşturulamadı.")
 
         except json.JSONDecodeError:
-            st.error("HATA: JSON bozuk.")
+            st.error("HATA: JSON formatı bozuk. Lütfen süslü parantezleri kontrol et.")
         except Exception as e:
-            st.error("🚨 BAĞLANTI HATASI:")
-            st.code(str(e))
-            if "404" in str(e):
-                st.info("İpucu: Model ismi bu API endpoint'inde farklı olabilir. Listeden diğer modeli dene.")
+            st.error(f"Bir hata oluştu: {e}")
