@@ -1,23 +1,12 @@
 import streamlit as st
-import subprocess
-import sys
-
-# --- 1. KABA KUVVET: Kütüphaneyi Zorla Güncelleme ---
-# Streamlit önbelleğini delmek için uygulama başlarken pip install çalıştırıyoruz.
-try:
-    # Bu komut terminalde 'pip install --upgrade google-generativeai' yazmakla aynıdır
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai>=0.8.3"])
-except Exception as e:
-    st.error(f"Güncelleme Hatası: {e}")
-
-# Kütüphane güncellendikten sonra import ediyoruz
-import google.generativeai as genai
+import requests
 import json
+import base64
 from PIL import Image
 import io
 
 # --- UI AYARLARI ---
-st.set_page_config(page_title="Cine Lab: Force Fix", layout="wide")
+st.set_page_config(page_title="Cine Lab: Direct Link", layout="wide")
 
 # --- CSS ---
 st.markdown("""
@@ -29,23 +18,62 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- API BAĞLANTISI ---
-try:
-    if "GEMINI_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    else:
-        st.error("API Key bulunamadı.")
-except Exception as e:
-    st.error(f"Bağlantı Hatası: {e}")
+# Burada SDK kullanmıyoruz, sadece anahtarı alıyoruz.
+api_key = st.secrets.get("GEMINI_API_KEY")
+if not api_key:
+    st.error("🚨 API Key bulunamadı! Secrets ayarlarını kontrol et.")
+    st.stop()
 
-# Listendeki en güçlü model (Bunu teyit etmiştik)
-MODEL_ID = "imagen-4.0-generate-001"
+# --- BYPASS FONKSİYONU (REST API) ---
+def generate_image_bypass(prompt, model_id, key):
+    # Google'ın ham API adresi (SDK kullanmadan direkt erişim)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:predict?key={key}"
+    
+    headers = {"Content-Type": "application/json"}
+    
+    # İstek paketi (JSON)
+    payload = {
+        "instances": [
+            {"prompt": prompt}
+        ],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "1:1"
+        }
+    }
+    
+    # Postacıya veriyoruz (Requests)
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    
+    if response.status_code != 200:
+        raise Exception(f"Google Reddedildi ({response.status_code}): {response.text}")
+    
+    # Gelen paketi açıyoruz
+    result = response.json()
+    
+    # Görsel verisini (Base64) çözüyoruz
+    try:
+        predictions = result.get('predictions', [])
+        if predictions:
+            # Base64 string'i görsel verisine çevir
+            b64_data = predictions[0]['bytesBase64Encoded']
+            image_data = base64.b64decode(b64_data)
+            return Image.open(io.BytesIO(image_data))
+        else:
+            return None
+    except Exception as e:
+        raise Exception(f"Paket Açma Hatası: {e} - Yanıt: {result}")
 
-st.title("🏭 Cine Lab: Fabrika (Force Update Modu)")
-st.caption(f"Aktif Model: {MODEL_ID}")
+# --- ARAYÜZ ---
+st.title("🏭 Cine Lab: Direct Uplink (SDK-Free)")
+st.caption("Aracı kütüphane devre dışı. Doğrudan Google sunucularına bağlanılıyor.")
 
 col_in, col_out = st.columns([1, 1.5], gap="large")
 
 with col_in:
+    # Model Seçimi (Listendeki modeller)
+    model_choice = st.selectbox("Model Seç:", ["imagen-3.0-generate-001", "imagen-4.0-generate-001"])
+    
     json_input = st.text_area("JSON Reçetesi:", height=300, value='{"style": "Cinematic", "camera": "Sony A7R", "lens": "85mm"}')
     generate_btn = st.button("ÜRETİMİ BAŞLAT")
 
@@ -61,44 +89,23 @@ with col_out:
                 f"photorealistic, visible skin pores, natural texture, 8k raw quality, no airbrushing."
             )
 
-            with st.spinner("Kütüphane kontrol ediliyor ve görsel üretiliyor..."):
-                # --- KRİTİK DEĞİŞİKLİK ---
-                # Hata veren 'from google... import ImageGenerationModel' satırını sildik.
-                # Yerine, güncellenmiş ana kütüphane içinden çağırıyoruz.
-                try:
-                    # Yeni sürümde bu sınıf genai'nin altında olmalı
-                    if hasattr(genai, "ImageGenerationModel"):
-                        model = genai.ImageGenerationModel(MODEL_ID)
-                    else:
-                        # Eğer hala bulamazsa manuel import deneriz
-                        from google.generativeai import ImageGenerationModel
-                        model = ImageGenerationModel(MODEL_ID)
-
-                    response = model.generate_images(
-                        prompt=master_prompt,
-                        number_of_images=1,
-                        # Güvenlik parametrelerini şimdilik kapattım, önce çalıştığını görelim
-                        aspect_ratio="1:1"
-                    )
+            with st.spinner(f"{model_choice} ile doğrudan bağlantı kuruluyor..."):
+                # BYPASS FONKSİYONUNU ÇAĞIRIYORUZ
+                image = generate_image_bypass(master_prompt, model_choice, api_key)
+                
+                if image:
+                    st.image(image, use_container_width=True)
                     
-                    if response.images:
-                        image = response.images[0]._pil_image
-                        st.image(image, use_container_width=True)
-                        
-                        buf = io.BytesIO()
-                        image.save(buf, format="PNG")
-                        st.download_button("İNDİR", data=buf.getvalue(), file_name="output.png", mime="image/png")
-                    else:
-                        st.warning("Görsel üretilemedi (Boş yanıt).")
-
-                except ImportError:
-                    st.error("Kütüphane hala eski sürümde! 'Force Update' işe yaramadı.")
-                except Exception as inner_e:
-                    st.error(f"Model Hatası: {inner_e}")
-                    if "404" in str(inner_e):
-                        st.info("İpucu: Model ID hatası. Lütfen API Key yetkilerini kontrol et.")
+                    buf = io.BytesIO()
+                    image.save(buf, format="PNG")
+                    st.download_button("İNDİR", data=buf.getvalue(), file_name="output.png", mime="image/png")
+                else:
+                    st.warning("Görsel oluşturulamadı (Boş yanıt).")
 
         except json.JSONDecodeError:
             st.error("HATA: JSON bozuk.")
         except Exception as e:
-            st.error(f"SİSTEM HATASI: {e}")
+            st.error("🚨 BAĞLANTI HATASI:")
+            st.code(str(e))
+            if "404" in str(e):
+                st.info("İpucu: Model ismi bu API endpoint'inde farklı olabilir. Listeden diğer modeli dene.")
