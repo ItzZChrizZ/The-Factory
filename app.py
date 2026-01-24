@@ -1,108 +1,68 @@
 import streamlit as st
 import google.generativeai as genai
-import json
-from PIL import Image
-import io
+import importlib.metadata
 
-# --- UI CONFIGURATION ---
-st.set_page_config(page_title="Cine Lab: Production Factory", layout="wide")
+st.set_page_config(page_title="Cine Lab: System Check", layout="wide")
 
-# --- CSS ---
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { display: none; }
-    header { visibility: hidden; }
-    footer { visibility: hidden; }
-    @media (prefers-color-scheme: dark) {
-        .stApp { background-color: #222121; color: #F9FEFF; }
-        .stTextArea textarea { background-color: #161b22; color: #F9FEFF; border: 1px solid #30363d; border-radius: 8px; }
-        .stButton button { background-color: #CCD4D7; color: #222121; }
-    }
-    @media (prefers-color-scheme: light) {
-        .stApp { background-color: #F9FEFF; color: #222121; }
-        .stTextArea textarea { background-color: #FFFFFF; color: #222121; border: 1px solid #E0E0E0; border-radius: 8px; }
-        .stButton button { background-color: #F7BE14; color: #F9FEFF; }
-    }
-    .stButton button { border-radius: 4px; font-weight: 700; width: 100%; height: 4em; text-transform: uppercase; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("🛠️ Cine Lab: Sistem ve Yetki Kontrolü")
 
-# --- API BAĞLANTISI (GÜVENLİ MOD) ---
-api_status = "ok"
+# 1. Kütüphane Sürüm Kontrolü
 try:
-    # Secrets kontrolü
-    if "GEMINI_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    version = importlib.metadata.version("google-generativeai")
+    st.write(f"**Yüklü SDK Sürümü:** `{version}`")
+    
+    # Sürüm 0.8.3'ten küçükse uyarı ver
+    if tuple(map(int, version.split('.'))) < (0, 8, 3):
+        st.error("❌ SÜRÜM ESKİ! Lütfen Streamlit panelinden uygulamayı SİLİP (Delete App) tekrar kurun.")
     else:
-        api_status = "missing_key"
-except Exception as e:
-    api_status = f"error: {str(e)}"
+        st.success("✅ Kütüphane Sürümü Güncel (Görsel üretimi destekliyor).")
+except:
+    st.error("Kütüphane sürümü okunamadı.")
 
-# Model ID (Listendeki en sağlam model)
-MODEL_ID = "imagen-3.0-generate-001"
-
-# --- ARAYÜZ ---
-st.title("Cine Lab: Production Factory")
 st.markdown("---")
 
-if api_status == "missing_key":
-    st.error("🚨 HATA: API Key bulunamadı! 'Secrets' ayarlarında 'GEMINI_API_KEY' ismini kullandığından emin ol.")
-elif api_status.startswith("error"):
-    st.error(f"🚨 SİSTEM HATASI: {api_status}")
+# 2. API ve Model Yetki Kontrolü
+st.subheader("🔑 API Anahtarı ve Model Erişimi")
 
-col_in, col_out = st.columns([1, 1.5], gap="large")
-
-with col_in:
-    st.subheader("JSON Recipe")
-    json_input = st.text_area("Paste technical data:", height=450, placeholder='{"camera": "Sony A7R V", ...}')
-    generate_btn = st.button("RUN PRODUCTION")
-
-with col_out:
-    st.subheader("Factory Output")
-    
-    if generate_btn and json_input:
-        if api_status != "ok":
-            st.error("API Bağlantısı olmadığı için üretim yapılamıyor.")
-        else:
-            try:
-                recipe = json.loads(json_input)
-                
-                # --- IMPORT KONTROLÜ (Çökme Engelleyici) ---
-                # Import işlemini butonun içine taşıdık ki uygulama açılırken patlamasın.
+try:
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        st.success("API Anahtarı 'Secrets' içinden alındı.")
+        
+        # Kullanılabilir Modelleri Listele
+        st.write("Bu anahtarla erişilebilen **Imagen/Görsel** modelleri aranıyor...")
+        
+        all_models = list(genai.list_models())
+        imagen_models = [m.name for m in all_models if "imagen" in m.name or "generate" in m.supported_generation_methods]
+        
+        if imagen_models:
+            st.success(f"🎉 Bulunan Görsel Modelleri ({len(imagen_models)}):")
+            st.code(imagen_models)
+            
+            # TEST ÜRETİMİ BUTONU
+            if st.button("TEST: Basit Bir Kare Üret (Imagen 3)"):
                 try:
+                    # Listeden en iyisini seç
+                    target_model = "imagen-3.0-generate-001"
+                    if "models/imagen-3.0-generate-001" not in [m.name for m in all_models]:
+                        # Eğer 3.0 yoksa listedeki ilkini al
+                        target_model = imagen_models[0].name.replace("models/", "")
+                    
+                    st.info(f"Test ediliyor: {target_model}")
                     from google.generativeai import ImageGenerationModel
-                except ImportError:
-                    st.error("⚠️ KRİTİK HATA: Kütüphane güncellenemedi.")
-                    st.info("Lütfen Streamlit panelinden 'Reboot App' yapın. (Requirements.txt: google-generativeai>=0.8.3 olmalı)")
-                    st.stop()
-
-                realism = "photorealistic, visible pores, natural texture, 8k raw quality, no airbrushing."
-                master_prompt = f"Professional Photo, {recipe.get('style','')}, {recipe.get('camera','')}, {recipe.get('lens','')}, {realism}"
-
-                with st.spinner(f"Rendering with {MODEL_ID}..."):
-                    model = ImageGenerationModel(MODEL_ID)
-                    
-                    response = model.generate_images(
-                        prompt=master_prompt,
-                        number_of_images=1,
-                        safety_filter_level="block_only_high",
-                        person_generation="allow_adult",
-                        aspect_ratio="1:1"
-                    )
-                    
-                    if response.images:
-                        image = response.images[0]._pil_image
-                        st.image(image, use_container_width=True)
-                        
-                        buf = io.BytesIO()
-                        image.save(buf, format="PNG")
-                        st.download_button("DOWNLOAD RAW", data=buf.getvalue(), file_name="output.png", mime="image/png")
-                    else:
-                        st.warning("Üretim durduruldu (Güvenlik filtresi).")
-
-            except Exception as e:
-                st.error(f"ÜRETİM HATASI: {e}")
-                if "404" in str(e):
-                    st.info("Model bulunamadı. API Key'in 'Imagen 3' yetkisi olduğundan emin ol.")
+                    model = ImageGenerationModel(target_model)
+                    response = model.generate_images(prompt="A cinematic apple, 8k lighting", number_of_images=1)
+                    st.image(response.images[0]._pil_image)
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Test Üretim Hatası: {e}")
+        else:
+            st.warning("⚠️ Bu API anahtarı ile hiçbir 'Imagen' (Görsel) modeline erişim yok. Sadece metin modelleri (Gemini Pro/Flash) açık olabilir.")
+            st.write("Tüm açık modeller:", [m.name for m in all_models])
+            
     else:
-        st.info("Sistem Hazır.")
+        st.error("❌ Secrets ayarlanmamış. Lütfen ayarlardan GEMINI_API_KEY ekleyin.")
+
+except Exception as e:
+    st.error(f"Bağlantı Hatası: {e}")
