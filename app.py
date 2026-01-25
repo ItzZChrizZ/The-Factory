@@ -5,30 +5,31 @@ import io
 import json
 from PIL import Image
 
-# --- 1. SETUP & PAGE CONFIG ---
-st.set_page_config(page_title="FactoryIR", layout="wide")
+# --- 1. SETUP & STRICT UI LOCKING ---
+st.set_page_config(page_title="FactoryIR", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS: Gerçek Tek Sayfa (One-Page) Deneyimi İçin Sıkılaştırma
+# CSS: Ekranı dikeyde kilitleyen ve scroll'u yok eden "Finesse" katmanı
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
-    .main { padding-top: 0rem; }
+    .main { padding-top: 0rem; overflow: hidden; }
+    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; height: 45vh !important; }
+    /* Görselin ekrana sığması için dikey kilit */
+    .stImage img { max-height: 60vh !important; width: auto; object-fit: contain; margin: 0 auto; display: block; border-radius: 8px; }
+    .stButton button { height: 3.5em; font-weight: bold; }
+    div[data-testid="column"] { height: 90vh; }
     footer {visibility: hidden;}
-    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; background-color: #161b22; color: #e6edf3; height: 350px !important; }
-    /* Görselin ekrana sığması için max-height ayarı */
-    .stImage img { max-height: 65vh; object-fit: contain; border-radius: 10px; }
-    .stButton button { height: 3em; font-weight: bold; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API CONFIG (Via Streamlit Secrets) ---
+# --- 2. API CONFIG ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 else:
-    st.error("Error: GOOGLE_API_KEY not found in secrets.")
+    st.error("API Key missing in secrets.")
     st.stop()
 
-# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL) ---
+# --- 3. THE LOGIC BRIDGE (100% FAITHFUL) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
@@ -46,29 +47,25 @@ def apply_logic_bridge(raw_json_prompt):
         - SHOT TYPE: Extreme Wide Shot (EWS).
         - COMPOSITION: The subject must occupy roughly 60-70% of the vertical frame height.
         - HEADROOM & FOOTROOM: Leave clear empty grey space above the head and below the shoes.
-        - NO CROPPING: Full body visible, centered against the seamless cyc wall.
+        - NO CROPPING: Full body visible.
         """
 
         phase1 = recipe.get("phase_1_subject_retention", {})
         location = phase1.get("environment_override", {}).get("location", "").lower()
-        notes = lp.get("director_notes", "").lower()
         original_pose_details = ", ".join(phase1.get("four_by_four_analysis", {}).get("pose", []))
 
         pose_rules = ""
         if "studio" in location and "leaning" in original_pose_details.lower():
-            if not any(word in notes for word in ["chair", "car", "table", "wall", "prop", "object", "block"]):
-                pose_rules = f"""
-                - POSE CORRECTION (PHYSICS): The subject cannot 'lean' against air.
-                - NEW DIRECTION: Convert the 'leaning' pose into a strong, self-supporting HIGH-FASHION STANDING stance.
-                - CRITICAL RETENTION: Maintain: "Hands tucked in pockets", "Slightly tilted head", "stoic gaze".
-                - NO FURNITURE: No blocks, no props.
-                """
+            pose_rules = """
+            - POSE CORRECTION: Self-supporting high-fashion standing stance. No leaning against air.
+            - RETENTION: "Hands in pockets", "Slightly tilted head", "stoic gaze".
+            """
 
-        refined_prompt = f"ACT AS: Professional Fashion Director.\n{json.dumps(data)}\n{framing_rules}\n{pose_rules}\n- RENDER: Invisible gear.\n- STYLE: Editorial."
-        return refined_prompt
+        # Modelin metin üretmesini zorlaştıran, direkt görsel üretimini tetikleyen prompt
+        return f"IMAGE_GENERATION_TASK: {json.dumps(data)}\n{framing_rules}\n{pose_rules}\nRENDER: 100% Photo-realistic, invisible gear, Kacper Kasprzyk style."
     except: return raw_json_prompt
 
-# --- 4. SAFETY & EXTRACTION (100% FAITHFUL) ---
+# --- 4. SAFETY & EXTRACTION ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -78,63 +75,52 @@ no_filter_settings = {
 
 def safe_extract_response(response):
     try:
+        # Önce görsel var mı ona bak, metni görmezden gel
         parts = response.parts if hasattr(response, 'parts') else response.candidates[0].content.parts
         for part in parts:
             if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
-                img_bytes = part.inline_data.data
-                return (Image.open(io.BytesIO(img_bytes)), img_bytes), part.inline_data.mime_type
-            if hasattr(part, 'text') and part.text: return part.text, "text/plain"
+                return (Image.open(io.BytesIO(part.inline_data.data)), part.inline_data.data), part.inline_data.mime_type
         return None, None
     except: return None, None
 
-# --- 5. UI LAYOUT & EXECUTION ---
+# --- 5. UI LAYOUT ---
 st.title("FactoryIR")
 
-# API'den canlı model listesini çekme
 @st.cache_data
 def get_live_models():
-    try:
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # 3.0 modellerini başa getir
-        models.sort(key=lambda x: "3.0" in x or "3-pro" in x, reverse=True)
-        return models
-    except:
-        return ["models/gemini-1.5-flash"]
+    try: return [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    except: return ["models/gemini-1.5-flash"]
 
 available_models = get_live_models()
 
-# Split Layout (Fixed width for one-page feel)
-col_left, col_right = st.columns([1, 1], gap="medium")
+col_in, col_out = st.columns([1, 1], gap="large")
 
-with col_left:
+with col_in:
     st.write("### Input")
-    user_prompt = st.text_area("CineLab JSON:", placeholder="Paste JSON here...", height=400)
+    user_prompt = st.text_area("CineLab JSON Input:", placeholder="Paste JSON...", label_visibility="collapsed")
     
-    # Model seçimi ve Buton alt alta
-    selected_model = st.selectbox("Select Active Model:", available_models)
-    generate_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
+    st.write("### Settings")
+    selected_model = st.selectbox("Model:", available_models, label_visibility="collapsed")
+    gen_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
 
-with col_right:
+with col_out:
     st.write("### Output")
-    if generate_btn and user_prompt:
+    if gen_btn and user_prompt:
         try:
-            with st.spinner("FactoryIR Engine Rendering..."):
-                final_prompt = apply_logic_bridge(user_prompt)
+            with st.spinner("Rendering..."):
                 model = genai.GenerativeModel(selected_model)
+                final_prompt = apply_logic_bridge(user_prompt)
                 response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
                 res, mime = safe_extract_response(response)
 
-            if isinstance(res, tuple):
+            if res:
                 img_obj, img_bytes = res
-                # Görseli göster
                 st.image(img_obj, use_container_width=True)
-                # Kaydet butonunu görselin ALTINA koy
+                # İNDİR BUTONU GÖRSELİN ALTINDA
                 st.download_button("💾 DOWNLOAD RENDER", data=img_bytes, file_name="factory_render.png", mime=mime, use_container_width=True)
-            elif res:
-                st.info(res)
             else:
-                st.error("No image generated.")
+                st.error("Model did not return an image. Check if the selected model supports image generation.")
         except Exception as e:
             st.error(f"Error: {str(e)}")
-    elif not generate_btn:
-        st.info("Awaiting CineLab JSON...")
+    else:
+        st.info("System ready. Waiting for JSON...")
