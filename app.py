@@ -1,6 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
-# HATA VEREN KISIM BURASIYDI: GenerationConfig EKLENDİ
+# ÖNEMLİ: Hata almamak için GenerationConfig buraya eklendi
 from google.generativeai.types import HarmCategory, HarmBlockThreshold, GenerationConfig
 import io
 import json
@@ -9,7 +9,7 @@ from PIL import Image
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- CSS: UI TASARIMI ---
+# --- CSS: UI FIX (RADIO BUTTONS & ALIGNMENT) ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
@@ -27,25 +27,33 @@ st.markdown("""
         height: 3em; 
         font-weight: bold; 
         border-radius: 8px; 
+        width: 100%;
     }
     
-    /* KART & GÖRSEL AYARLARI */
-    /* Görseller kartın içinde taşmasın, sığsın */
+    /* GÖRSEL AYARLARI */
     div[data-testid="stImage"] img {
         width: 100%;
         height: auto;
         object-fit: contain;
         border-radius: 4px;
-        max-height: 480px; /* One Page koruması */
+        max-height: 480px; 
     }
     
-    /* Radio Button (1-2-3-4) Yatay Görünüm */
+    /* --- RADIO BUTTON (1-2-3-4) DÜZELTME --- */
     div[role="radiogroup"] {
-        flex-direction: row;
+        flex-direction: row;    /* Yan yana diz */
+        gap: 12px;              /* Aralarına boşluk koy (BUNU EKLEDİK) */
         justify-content: center;
-        padding-top: 10px;
+        align-items: center;
+        padding-top: 8px;       /* Buton hizasına getirmek için */
     }
     
+    /* Radio butonların etiket fontunu düzelt */
+    div[data-testid="stMarkdownContainer"] p {
+        font-size: 1rem;
+        margin-bottom: 0px;
+    }
+
     h1 { margin-bottom: 0.2rem; font-size: 2rem; }
     </style>
     """, unsafe_allow_html=True)
@@ -147,31 +155,29 @@ available_models = get_available_models()
 # Layout: 40% Input (Sol) - 60% Output (Sağ/Grid)
 col_left, col_right = st.columns([0.4, 0.6], gap="large")
 
-# --- SOL TARAF (TOOLBAR & INPUT) ---
+# --- SOL TARAF ---
 with col_left:
     st.write("### Input")
     user_prompt = st.text_area("CineLab JSON Input:", height=480, placeholder="Paste JSON code here...", label_visibility="collapsed")
     
-    # --- YENİ TOOLBAR TASARIMI ---
-    # Model | Adet Seçimi | Buton
-    c1, c2, c3 = st.columns([2, 1.5, 1.5], gap="small")
+    # --- TOOLBAR (HİZALAMA DÜZELTİLDİ) ---
+    # Oranları değiştirdik: Model (2.5) | Sayı (1.2) | Buton (1.3)
+    c1, c2, c3 = st.columns([2.5, 1.2, 1.3], gap="small")
     
     with c1:
-        # Model Seçimi
         if available_models:
             selected_model = st.selectbox("Model", available_models, index=0, label_visibility="collapsed")
         else:
             selected_model = st.text_input("Model", "gemini-1.5-pro", label_visibility="collapsed")
             
     with c2:
-        # 1-2-3-4 Seçimi (Yatay Radio Button)
+        # Checkboxlar CSS 'gap' ile artık düzgün görünecek
         image_count = st.radio("Qty", [1, 2, 3, 4], index=0, horizontal=True, label_visibility="collapsed")
 
     with c3:
-        # Generate Butonu
         generate_btn = st.button("🚀 RUN", type="primary", use_container_width=True)
 
-# --- SAĞ TARAF (OUTPUT KARTLARI) ---
+# --- SAĞ TARAF ---
 with col_right:
     st.write("### Output Stream")
     
@@ -179,7 +185,7 @@ with col_right:
         final_prompt = apply_logic_bridge(user_prompt)
         model = genai.GenerativeModel(selected_model)
         
-        # Grid Sistemi (Seçilen sayı kadar sütun)
+        # Grid Sistemi
         grid_cols = st.columns(image_count)
         
         for i in range(image_count):
@@ -187,18 +193,16 @@ with col_right:
                 # Kart Görünümü
                 with st.container(border=True):
                     
-                    # Logic: İlk görsel Master (%100), diğerleri Variant (%90)
+                    # Logic: 0 -> Master (Strict), others -> Variant (Creative)
                     current_temp = 0.2 if i == 0 else 0.9
                     
-                    # Kart Başlığı
                     if i == 0:
-                        st.caption("💎 Master (Strict)")
+                        st.caption("💎 Master")
                     else:
                         st.caption(f"🎨 Variant {i}")
                     
-                    with st.spinner("Rendering..."):
+                    with st.spinner("..."):
                         try:
-                            # HATA DÜZELTİLDİ: GenerationConfig artık tanımlı
                             config = GenerationConfig(temperature=current_temp)
                             
                             response = model.generate_content(
@@ -210,11 +214,7 @@ with col_right:
 
                             if img_res:
                                 img_obj, img_bytes = img_res
-                                
-                                # Görsel
                                 st.image(img_obj, use_container_width=True)
-                                
-                                # İndirme Butonu
                                 st.download_button(
                                     label="💾 SAVE", 
                                     data=img_bytes, 
@@ -223,12 +223,11 @@ with col_right:
                                     use_container_width=True
                                 )
                             elif text_res:
-                                st.error("Text Error")
-                                st.code(text_res, language="text")
+                                st.error("Error")
                             else:
                                 st.error("Blocked")
                         except Exception as e:
-                            st.error(f"Error: {str(e)}")
+                            st.error(f"Err: {str(e)}")
             
     elif not generate_btn:
-        st.info("Ready. Set count and click RUN.")
+        st.info("Ready.")
