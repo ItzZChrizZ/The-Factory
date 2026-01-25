@@ -8,10 +8,10 @@ from PIL import Image
 # --- 1. SETUP ---
 st.set_page_config(page_title="FactoryIR: Nano Banana", page_icon="🍌", layout="wide")
 
-st.title("🍌 FactoryIR: Nano Banana v2.1")
-st.markdown("CineLab JSON reçetesini analiz eder, hatalı poz ve kadraj seçimlerini otomatik düzeltir.")
+st.title("🍌 FactoryIR: Surgical Edition v2.2")
+st.markdown("CineLab JSON analiz edilirken nesne isimleri temizlenir ve tam boy kadraj zorlanır.")
 
-# --- 2. GÜVENLİK AYARLARI ---
+# --- 2. GÜVENLİK AYARLARI (FULL UNFILTERED) ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -19,50 +19,58 @@ no_filter_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- 3. 🧠 THE LOGIC BRIDGE (GÜNCELLENMİŞ MANTIK) ---
+# --- 3. 🧠 THE LOGIC BRIDGE (CERRAHİ MÜDAHALE KATMANI) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
         recipe = data.get("cinematography_recipe", {})
-        phase1 = recipe.get("phase_1_subject_retention", {})
-        env = phase1.get("environment_override", {})
-        location = env.get("location", "").lower()
-        notes = recipe.get("phase_4_lighting_physics", {}).get("director_notes", "")
+        
+        # --- KELİME TEMİZLİĞİ (Işığı nesne olmaktan çıkar, etki haline getir) ---
+        lp = recipe.get("phase_4_lighting_physics", {})
+        for key in ["key_light", "fill_light", "back_light", "setup"]:
+            if key in lp:
+                # 'Softbox' veya 'Board' kelimeleri geçince AI nesneyi çizmeye çalışıyor. 
+                # Bunları teknik ışık fiziği terimlerine çeviriyoruz.
+                lp[key] = lp[key].lower().replace("softbox", "diffused volumetric light source") \
+                                         .replace("bounce board", "indirect fill reflection") \
+                                         .replace("light stand", "invisible point source") \
+                                         .replace("setup", "lighting physics")
 
-        # --- KURAL 1: KADRAJ (FULL-BODY) KORUMASI ---
-        framing_fix = """
-        - FRAMING RULE: MUST be a strict FULL-BODY shot. 
-        - Camera is positioned 5-7 meters away. 
-        - Show the subject from the bottom of their shoes to the top of their head. 
-        - DO NOT zoom in for textures; maintain a wide fashion editorial distance."""
+        # --- KADRAJ DİKTE ETME (EXTREME WIDE SHOT) ---
+        # AI'yı kamerayı geriye çekmeye zorlayan sinematografik komutlar.
+        framing_rules = """
+        - SHOT TYPE: Extreme Wide Shot (EWS).
+        - COMPOSITION: The subject must occupy only 60% of the vertical frame height.
+        - HEADROOM & FOOTROOM: Leave significant empty grey space (20%) above the head and (20%) below the shoes.
+        - NO CROPPING: Feet, shoes, and top of the head must be fully visible and centered.
+        """
 
-        # --- KURAL 2: POZ VE OBJE KORUMASI ---
-        pose_fix = ""
+        # --- POZ VE OBJE TEMİZLİĞİ ---
+        location = recipe.get("phase_1_subject_retention", {}).get("environment_override", {}).get("location", "").lower()
+        notes = lp.get("director_notes", "").lower()
+        
+        pose_rules = ""
         if "studio" in location:
-            # Kullanıcı notlarda bir obje (car, chair, wall vb) belirtmediyse
-            if not any(word in notes.lower() for word in ["chair", "car", "table", "wall", "prop", "object"]):
-                pose_fix = """
-                - POSE OVERRIDE: Ignore the 'leaning' pose from the reference. 
-                - New Pose: The model must stand STRAIGHT and UPRIGHT in the center. 
-                - NO blocks, NO props, NO furniture. 100% empty space around the subject."""
-            else:
-                pose_fix = "- POSE RULE: Maintain leaning pose against the specified prop in the notes."
-
-        # --- KURAL 3: GÖRÜNMEZ EKİPMAN ---
-        invisible_gear = "\n- RENDER RULE: 100% Invisible studio equipment (no stands, no softbox edges)."
+            # Eğer notlarda özel bir obje yoksa dik duruşu zorla.
+            if not any(word in notes for word in ["chair", "car", "table", "wall", "prop", "object", "block"]):
+                pose_rules = """
+                - POSE OVERRIDE: Ignore the reference 'leaning' pose. 
+                - New Pose: Standing strictly UPRIGHT and STRAIGHT in the center.
+                - NO FURNITURE: No blocks, no boxes, no props of any kind."""
 
         refined_prompt = f"""
-        ACT AS: Professional Technical Director of Photography.
-        {raw_json_prompt}
+        ACT AS: Professional Fashion Director of Photography.
         
-        CRITICAL REVISIONS FOR THIS RENDER:
-        {framing_fix}
-        {pose_fix}
-        {invisible_gear}
-        - STICK TO: Neutral minimalist grey cyclorama background as requested.
+        {json.dumps(data)} # Temizlenmiş JSON Reçetesi
+        
+        STRICT EXECUTION DIRECTIVES:
+        {framing_rules}
+        {pose_rules}
+        - RENDER RULE: 100% Invisible studio equipment. Only render the photons hitting the subject.
+        - BACKGROUND: Clean, seamless, neutral grey cyclorama.
         """
         return refined_prompt
-    except:
+    except Exception as e:
         return raw_json_prompt
 
 # --- 4. YARDIMCI FONKSİYONLAR ---
@@ -95,22 +103,24 @@ with st.sidebar:
 
 col1, col2 = st.columns([2, 1])
 with col1:
-    user_prompt = st.text_area("📝 CineLab Prompt Girişi:", height=350)
+    user_prompt = st.text_area("📝 CineLab JSON Yapıştır:", height=350)
 
 with col2:
-    st.markdown("### ⚙️ Kontrol")
-    generate_btn = st.button("🚀 FİLTRESİZ ÜRET", type="primary", use_container_width=True)
+    st.markdown("### ⚙️ Kontrol Paneli")
+    generate_btn = st.button("🚀 FİLTRESİZ VE CERRAHİ ÜRET", type="primary", use_container_width=True)
 
 # --- 6. EXECUTION ---
 st.markdown("---")
 if generate_btn:
     if not api_key or not selected_model or not user_prompt:
-        st.warning("Eksik alanlar var.")
+        st.warning("Eksik alanları doldur.")
     else:
         try:
-            with st.spinner("Logic Bridge Zorlanıyor: Tam Boy & Dik Duruş..."):
+            with st.spinner("Logic Bridge v2.2: Kelimeler Ayıklanıyor & Kadraj Zorlanıyor..."):
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel(selected_model)
+                
+                # Cerrahi mantığı uygula
                 final_prompt = apply_logic_bridge(user_prompt)
                 
                 response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
@@ -118,8 +128,8 @@ if generate_btn:
 
                 if image_res:
                     img_obj, raw_bytes = image_res
-                    st.image(img_obj, caption="FactoryIR Fixed Output", use_container_width=True)
-                    st.download_button("💾 Kaydet", data=raw_bytes, file_name="fixed_output.png", mime=mime)
+                    st.image(img_obj, caption="FactoryIR Surgical Output", use_container_width=True)
+                    st.download_button("💾 Görseli Kaydet", data=raw_bytes, file_name="surgical_factory.png", mime=mime)
                 elif text_res: st.info(text_res)
-                else: st.error("Sonuç alınamadı.")
-        except Exception as e: st.error(f"Hata: {e}")
+                else: st.error("Görsel üretilemedi; güvenlik filtresi veya model hatası.")
+        except Exception as e: st.error(f"Hata oluştu: {str(e)}")
