@@ -6,39 +6,32 @@ import json
 from PIL import Image
 
 # --- 1. SETUP & PAGE CONFIG ---
-st.set_page_config(page_title="FactoryIR", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# CSS: Gerçek Tek Sayfa Deneyimi ve Görsel Boyut Kontrolü
+# CSS: Sidebari gizle ve terminal tarzı fontları ayarla
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
-    .main { padding-top: 1rem; overflow: hidden; }
-    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; height: 380px !important; }
-    /* Çıktı alanını ve görseli dikeyde sınırlama */
-    .stImage img { max-height: 550px !important; width: auto; object-fit: contain; margin: 0 auto; display: block; }
-    footer {visibility: hidden;}
+    .main { padding-top: 2rem; }
+    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; background-color: #161b22; color: #e6edf3; }
     .stButton button { height: 3em; font-weight: bold; }
-    /* Kolon yüksekliklerini sabitleme */
-    div[data-testid="column"] { height: 85vh; overflow: hidden; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API CONFIG (Secrets) ---
-try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=API_KEY)
-except:
-    st.error("Error: GOOGLE_API_KEY not found in secrets.")
+# --- 2. API CONFIG (Via Streamlit Secrets) ---
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("Error: GOOGLE_API_KEY not found in secrets. Please check your configuration.")
     st.stop()
 
-# --- 3. 🧠 THE LOGIC BRIDGE (ORIGINAL - 100% FAITHFUL) ---
+# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
         recipe = data.get("cinematography_recipe", {})
-        
-        # --- A. KELİME TEMİZLİĞİ ---
         lp = recipe.get("phase_4_lighting_physics", {})
+        
         for key in ["key_light", "fill_light", "back_light", "setup"]:
             if key in lp:
                 lp[key] = lp[key].lower().replace("softbox", "diffused volumetric light source") \
@@ -46,7 +39,6 @@ def apply_logic_bridge(raw_json_prompt):
                                          .replace("light stand", "invisible point source") \
                                          .replace("setup", "lighting physics")
 
-        # --- B. KADRAJ DİKTE ETME ---
         framing_rules = """
         - SHOT TYPE: Extreme Wide Shot (EWS).
         - COMPOSITION: The subject must occupy roughly 60-70% of the vertical frame height.
@@ -54,7 +46,6 @@ def apply_logic_bridge(raw_json_prompt):
         - NO CROPPING: Full body visible, centered against the seamless cyc wall.
         """
 
-        # --- C. POZ VE OBJE ESTETİĞİ ---
         phase1 = recipe.get("phase_1_subject_retention", {})
         location = phase1.get("environment_override", {}).get("location", "").lower()
         notes = lp.get("director_notes", "").lower()
@@ -85,7 +76,7 @@ def apply_logic_bridge(raw_json_prompt):
     except Exception:
         return raw_json_prompt
 
-# --- 4. SAFETY & EXTRACTION ---
+# --- 4. SAFETY & EXTRACTION (100% FAITHFUL) ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -98,11 +89,15 @@ def safe_extract_response(response):
         parts = response.parts if hasattr(response, 'parts') else response.candidates[0].content.parts
         for part in parts:
             if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
-                return (Image.open(io.BytesIO(part.inline_data.data)), part.inline_data.data), part.inline_data.mime_type
-        return None, None
-    except: return None, None
+                img_bytes = part.inline_data.data
+                img = Image.open(io.BytesIO(img_bytes))
+                return (img, img_bytes), None, part.inline_data.mime_type
+            if hasattr(part, 'text') and part.text:
+                return None, part.text, "text/plain"
+        return None, None, None
+    except: return None, None, None
 
-# --- 5. UI LAYOUT ---
+# --- 5. UI LAYOUT & EXECUTION ---
 st.title("FactoryIR")
 
 @st.cache_data
