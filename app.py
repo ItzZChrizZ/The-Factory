@@ -148,21 +148,29 @@ col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
     st.write("### Input")
-    # FIX: 480px ideal yükseklik. Scroll gerektirmez, One Page hissini korur.
+    # Text Area yüksekliği 480px (One Page kuralı)
     user_prompt = st.text_area("CineLab JSON Input:", height=480, placeholder="Paste JSON code here...", label_visibility="collapsed")
     
-    # Yer kazanmak için Settings başlığını kaldırdık, direkt seçim kutusu
-    c1, c2 = st.columns([2, 1])
+    # --- TOOLBAR ALANI ---
+    # Sütunları bölüyoruz: [Model Kutusu] [1-2-3-4 Seçimi] [Buton]
+    # Ratios: Model (2 birim), Sayı Seçimi (1.5 birim), Buton (1.5 birim)
+    c1, c2, c3 = st.columns([2, 1.5, 1.5], gap="small")
+    
     with c1:
+        # Model Seçimi (Küçültülmüş alan)
         if available_models:
             selected_model = st.selectbox("Model", available_models, index=0, label_visibility="collapsed")
         else:
             selected_model = st.text_input("Model", "gemini-1.5-pro", label_visibility="collapsed")
-    
+            
     with c2:
-        # Generate Butonu (Sol altta)
-        generate_btn = st.button("🚀 GENERATE", type="primary", use_container_width=True)
+        # 1-2-3-4 Seçimi (Yatay Radio Button - Checkbox gibi görünür)
+        # Bu seçim direkt 'image_count' değişkenini belirler.
+        image_count = st.radio("Qty", [1, 2, 3, 4], index=0, horizontal=True, label_visibility="collapsed")
 
+    with c3:
+        # Generate Butonu (En sağda)
+        generate_btn = st.button("🚀 RUN", type="primary", use_container_width=True)
 with col_right:
     st.write("### Output Stream")
     
