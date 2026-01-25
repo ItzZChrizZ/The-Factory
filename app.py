@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+# HATA VEREN KISIM BURASIYDI: GenerationConfig EKLENDİ
+from google.generativeai.types import HarmCategory, HarmBlockThreshold, GenerationConfig
 import io
 import json
 from PIL import Image
@@ -8,45 +9,44 @@ from PIL import Image
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- CSS: ONE PAGE & ALIGNMENT MASTER FIX ---
+# --- CSS: UI TASARIMI ---
 st.markdown("""
     <style>
-    /* Sidebar Gizle */
     [data-testid="stSidebar"] { display: none; }
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
-    /* Üst ve Alt Boşlukları Azalt (Compact Mode) */
-    .block-container { 
-        padding-top: 1rem; 
-        padding-bottom: 1rem; 
-    }
-    
-    /* Input Alanı (Terminal Hissi) */
+    /* Input Alanı */
     .stTextArea textarea { 
         font-family: 'JetBrains Mono', monospace; 
         background-color: #161b22; 
-        color: #e6edf3;
+        color: #e6edf3; 
     }
     
-    /* Buton Stilleri */
+    /* Butonlar */
     .stButton button { 
         height: 3em; 
         font-weight: bold; 
-        border-radius: 8px;
+        border-radius: 8px; 
     }
     
-    /* GÖRSEL BOYUT FIXLEME (Hizalama Kilidi) */
-    /* Input alanı 480px olacak, görseli de max 480px'e sabitliyoruz. */
-    /* Böylece sol ve sağ sütun eşit boyda biter, butonlar hizalanır. */
+    /* KART & GÖRSEL AYARLARI */
+    /* Görseller kartın içinde taşmasın, sığsın */
     div[data-testid="stImage"] img {
-        max-height: 480px;  
-        width: auto;
+        width: 100%;
+        height: auto;
         object-fit: contain;
-        margin: 0 auto;
-        display: block;
+        border-radius: 4px;
+        max-height: 480px; /* One Page koruması */
+    }
+    
+    /* Radio Button (1-2-3-4) Yatay Görünüm */
+    div[role="radiogroup"] {
+        flex-direction: row;
+        justify-content: center;
+        padding-top: 10px;
     }
     
     h1 { margin-bottom: 0.2rem; font-size: 2rem; }
-    h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; font-size: 1.2rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -144,33 +144,34 @@ def get_available_models():
 
 available_models = get_available_models()
 
-col_left, col_right = st.columns([1, 1], gap="large")
+# Layout: 40% Input (Sol) - 60% Output (Sağ/Grid)
+col_left, col_right = st.columns([0.4, 0.6], gap="large")
 
+# --- SOL TARAF (TOOLBAR & INPUT) ---
 with col_left:
     st.write("### Input")
-    # Text Area yüksekliği 480px (One Page kuralı)
     user_prompt = st.text_area("CineLab JSON Input:", height=480, placeholder="Paste JSON code here...", label_visibility="collapsed")
     
-    # --- TOOLBAR ALANI ---
-    # Sütunları bölüyoruz: [Model Kutusu] [1-2-3-4 Seçimi] [Buton]
-    # Ratios: Model (2 birim), Sayı Seçimi (1.5 birim), Buton (1.5 birim)
+    # --- YENİ TOOLBAR TASARIMI ---
+    # Model | Adet Seçimi | Buton
     c1, c2, c3 = st.columns([2, 1.5, 1.5], gap="small")
     
     with c1:
-        # Model Seçimi (Küçültülmüş alan)
+        # Model Seçimi
         if available_models:
             selected_model = st.selectbox("Model", available_models, index=0, label_visibility="collapsed")
         else:
             selected_model = st.text_input("Model", "gemini-1.5-pro", label_visibility="collapsed")
             
     with c2:
-        # 1-2-3-4 Seçimi (Yatay Radio Button - Checkbox gibi görünür)
-        # Bu seçim direkt 'image_count' değişkenini belirler.
+        # 1-2-3-4 Seçimi (Yatay Radio Button)
         image_count = st.radio("Qty", [1, 2, 3, 4], index=0, horizontal=True, label_visibility="collapsed")
 
     with c3:
-        # Generate Butonu (En sağda)
+        # Generate Butonu
         generate_btn = st.button("🚀 RUN", type="primary", use_container_width=True)
+
+# --- SAĞ TARAF (OUTPUT KARTLARI) ---
 with col_right:
     st.write("### Output Stream")
     
@@ -178,21 +179,18 @@ with col_right:
         final_prompt = apply_logic_bridge(user_prompt)
         model = genai.GenerativeModel(selected_model)
         
-        # 1. GRID SİSTEMİ: Görsel sayısı kadar sütun açıyoruz (Yan yana dizilim)
+        # Grid Sistemi (Seçilen sayı kadar sütun)
         grid_cols = st.columns(image_count)
         
         for i in range(image_count):
-            # Her bir sütunun içine giriyoruz
             with grid_cols[i]:
-                # 2. KART GÖRÜNÜMÜ: İçeriği çerçeveli kutuya alıyoruz
+                # Kart Görünümü
                 with st.container(border=True):
                     
-                    # 3. SADAKAT MANTIĞI (Logic Bridge)
-                    # İlk görsel (i==0) -> Temp 0.2 (%100 Sadık)
-                    # Diğerleri (i>0)   -> Temp 0.9 (%90 Sadık + %10 Yaratıcılık)
+                    # Logic: İlk görsel Master (%100), diğerleri Variant (%90)
                     current_temp = 0.2 if i == 0 else 0.9
                     
-                    # Başlık (Badge)
+                    # Kart Başlığı
                     if i == 0:
                         st.caption("💎 Master (Strict)")
                     else:
@@ -200,7 +198,7 @@ with col_right:
                     
                     with st.spinner("Rendering..."):
                         try:
-                            # Sıcaklık ayarını burada gönderiyoruz
+                            # HATA DÜZELTİLDİ: GenerationConfig artık tanımlı
                             config = GenerationConfig(temperature=current_temp)
                             
                             response = model.generate_content(
@@ -213,7 +211,7 @@ with col_right:
                             if img_res:
                                 img_obj, img_bytes = img_res
                                 
-                                # Görseli kartın genişliğine oturt (Responsive)
+                                # Görsel
                                 st.image(img_obj, use_container_width=True)
                                 
                                 # İndirme Butonu
