@@ -8,26 +8,52 @@ from PIL import Image
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# CSS: Sidebar'ı gizle, Fontları ayarla ve Paddingleri optimize et
+# --- CSS: ONE PAGE FIX ---
+# Buradaki CSS, görselin ekrandaki boyunu sınırlar (max-height: 65vh).
+# Böylece görsel çok uzun olsa bile ekrana sığar, scroll açtırmaz.
+# Download butonu da hemen altına gelir.
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { display: none; }
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; background-color: #161b22; color: #e6edf3; }
-    .stButton button { height: 3em; font-weight: bold; border-radius: 8px; }
+    
+    /* Input Alanı Fontları */
+    .stTextArea textarea { 
+        font-family: 'JetBrains Mono', monospace; 
+        background-color: #161b22; 
+        color: #e6edf3; 
+    }
+    
+    /* Buton Stilleri */
+    .stButton button { 
+        height: 3em; 
+        font-weight: bold; 
+        border-radius: 8px; 
+    }
+    
+    /* GÖRSEL BOYUT FIXLEME (CRITICAL UPDATE) */
+    /* Görsel ne kadar büyük olursa olsun ekranda max 600px yer kaplasın */
+    div[data-testid="stImage"] img {
+        max-height: 600px; 
+        width: auto;
+        object-fit: contain;
+        margin: 0 auto;
+        display: block;
+    }
+    
+    /* Başlık */
     h1 { margin-bottom: 0.5rem; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. API CONFIG (Via Streamlit Secrets) ---
-# Secrets kontrolü ve API kurulumu
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 else:
-    st.error("Error: GOOGLE_API_KEY not found in secrets. Please check your .streamlit/secrets.toml file.")
+    st.error("Error: GOOGLE_API_KEY not found in secrets.")
     st.stop()
 
-# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL) ---
+# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL - DO NOT TOUCH) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
@@ -78,7 +104,7 @@ def apply_logic_bridge(raw_json_prompt):
     except Exception:
         return raw_json_prompt
 
-# --- 4. SAFETY & EXTRACTION (CORRECTED) ---
+# --- 4. SAFETY & EXTRACTION (100% FAITHFUL) ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -87,27 +113,17 @@ no_filter_settings = {
 }
 
 def safe_extract_response(response):
-    """
-    Returns: ((img_obj, img_bytes), text_content, mime_type)
-    """
     try:
-        # Candidate kontrolü
         if not hasattr(response, 'candidates') or not response.candidates:
             return None, "No candidates returned", None
-            
         parts = response.parts if hasattr(response, 'parts') else response.candidates[0].content.parts
-        
         for part in parts:
-            # GÖRSEL YAKALAMA
             if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
                 img_bytes = part.inline_data.data
                 img = Image.open(io.BytesIO(img_bytes))
                 return (img, img_bytes), None, part.inline_data.mime_type
-            
-            # TEXT YAKALAMA (Hata mesajı veya modelin reddi olabilir)
             if hasattr(part, 'text') and part.text:
                 return None, part.text, "text/plain"
-                
         return None, None, None
     except Exception as e: 
         return None, str(e), None
@@ -118,16 +134,12 @@ st.title("FactoryIR")
 @st.cache_data
 def get_available_models():
     try:
-        # Sadece generateContent destekleyenleri listele
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Eğer liste boşsa veya istenen modeller yoksa manuel ekleme yapabiliriz (Opsiyonel)
-        return models
+        return [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
     except:
-        return ["models/gemini-1.5-pro-latest"] # Fallback
+        return ["models/gemini-1.5-pro-latest"]
 
 available_models = get_available_models()
 
-# Layout: İki Sütun
 col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
@@ -135,12 +147,12 @@ with col_left:
     user_prompt = st.text_area("CineLab JSON Input:", height=380, placeholder="Paste JSON code here...")
     
     st.write("### Settings")
-    # Model listesi boş gelirse diye önlem
     if available_models:
         selected_model = st.selectbox("Select Active Model:", available_models, index=0)
     else:
-        selected_model = st.text_input("Enter Model Name (e.g., gemini-1.5-pro):", "gemini-1.5-pro")
+        selected_model = st.text_input("Enter Model Name:", "gemini-1.5-pro")
 
+    # Generate Butonu Sol Tarafta
     generate_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
 
 with col_right:
@@ -148,22 +160,22 @@ with col_right:
     if generate_btn and user_prompt:
         try:
             with st.spinner("Processing Logic Bridge & Rendering..."):
-                # 1. Prompt'u işle
                 final_prompt = apply_logic_bridge(user_prompt)
-                
-                # 2. Modeli çağır
                 model = genai.GenerativeModel(selected_model)
                 response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
-                
-                # 3. Yanıtı ayrıştır (DÜZELTİLDİ: 3 Değişken)
                 img_res, text_res, mime = safe_extract_response(response)
 
-            # 4. Sonucu Göster
             if img_res:
                 img_obj, img_bytes = img_res
-                st.image(img_obj, use_container_width=True)
                 
-                # İndirme Butonu
+                # GÖRSEL GÖSTERİMİ
+                # CSS sayesinde bu görsel max-height: 600px olacak.
+                # use_column_width=True dikeyde sınırsız uzamayı tetikler, 
+                # CSS ile bunu engelledik.
+                st.image(img_obj) 
+                
+                # KAYDET BUTONU
+                # Görselin yüksekliği sınırlandığı için bu buton hep yukarıda kalacak.
                 st.download_button(
                     label="💾 DOWNLOAD RENDER", 
                     data=img_bytes, 
@@ -172,11 +184,10 @@ with col_right:
                     use_container_width=True
                 )
             elif text_res:
-                # Eğer model metin döndürdüyse (Hata veya açıklama)
-                st.warning("Model responded with text instead of an image:")
+                st.warning("Model responded with text:")
                 st.code(text_res, language="text")
             else:
-                st.error("Model did not return any usable content (Blocked or Empty).")
+                st.error("Model blocked the request.")
                 
         except Exception as e:
             st.error(f"System Error: {str(e)}")
