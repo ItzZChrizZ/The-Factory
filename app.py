@@ -164,43 +164,65 @@ with col_left:
         generate_btn = st.button("🚀 GENERATE", type="primary", use_container_width=True)
 
 with col_right:
-    st.write("### Output")
-    
-    output_container = st.container()
+    st.write("### Output Stream")
     
     if generate_btn and user_prompt:
-        try:
-            with st.spinner("Rendering..."):
-                final_prompt = apply_logic_bridge(user_prompt)
-                model = genai.GenerativeModel(selected_model)
-                response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
-                img_res, text_res, mime = safe_extract_response(response)
-
-            if img_res:
-                img_obj, img_bytes = img_res
-                
-                with output_container:
-                    # GÖRSEL (CSS ile max-height: 480px'e kilitli)
-                    st.image(img_obj) 
+        final_prompt = apply_logic_bridge(user_prompt)
+        model = genai.GenerativeModel(selected_model)
+        
+        # 1. GRID SİSTEMİ: Görsel sayısı kadar sütun açıyoruz (Yan yana dizilim)
+        grid_cols = st.columns(image_count)
+        
+        for i in range(image_count):
+            # Her bir sütunun içine giriyoruz
+            with grid_cols[i]:
+                # 2. KART GÖRÜNÜMÜ: İçeriği çerçeveli kutuya alıyoruz
+                with st.container(border=True):
                     
-                    # KAYDET BUTONU
-                    # Görsel 480px, Input 480px olduğu için bu buton 
-                    # sol taraftaki buton grubuyla aynı hizada başlar.
-                    st.download_button(
-                        label="💾 DOWNLOAD RENDER", 
-                        data=img_bytes, 
-                        file_name="factory_render.png", 
-                        mime=mime, 
-                        use_container_width=True
-                    )
-            elif text_res:
-                st.warning("Text Response:")
-                st.code(text_res, language="text")
-            else:
-                st.error("Blocked.")
-                
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+                    # 3. SADAKAT MANTIĞI (Logic Bridge)
+                    # İlk görsel (i==0) -> Temp 0.2 (%100 Sadık)
+                    # Diğerleri (i>0)   -> Temp 0.9 (%90 Sadık + %10 Yaratıcılık)
+                    current_temp = 0.2 if i == 0 else 0.9
+                    
+                    # Başlık (Badge)
+                    if i == 0:
+                        st.caption("💎 Master (Strict)")
+                    else:
+                        st.caption(f"🎨 Variant {i}")
+                    
+                    with st.spinner("Rendering..."):
+                        try:
+                            # Sıcaklık ayarını burada gönderiyoruz
+                            config = GenerationConfig(temperature=current_temp)
+                            
+                            response = model.generate_content(
+                                final_prompt, 
+                                safety_settings=no_filter_settings,
+                                generation_config=config
+                            )
+                            img_res, text_res, mime = safe_extract_response(response)
+
+                            if img_res:
+                                img_obj, img_bytes = img_res
+                                
+                                # Görseli kartın genişliğine oturt (Responsive)
+                                st.image(img_obj, use_container_width=True)
+                                
+                                # İndirme Butonu
+                                st.download_button(
+                                    label="💾 SAVE", 
+                                    data=img_bytes, 
+                                    file_name=f"render_v{i+1}.png", 
+                                    mime=mime, 
+                                    use_container_width=True
+                                )
+                            elif text_res:
+                                st.error("Text Error")
+                                st.code(text_res, language="text")
+                            else:
+                                st.error("Blocked")
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
             
     elif not generate_btn:
-        st.info("Waiting for CineLab JSON...")
+        st.info("Ready. Set count and click RUN.")
