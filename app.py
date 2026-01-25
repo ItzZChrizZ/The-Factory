@@ -8,45 +8,44 @@ from PIL import Image
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- CSS: ONE PAGE FIX ---
-# Buradaki CSS, görselin ekrandaki boyunu sınırlar (max-height: 65vh).
-# Böylece görsel çok uzun olsa bile ekrana sığar, scroll açtırmaz.
-# Download butonu da hemen altına gelir.
+# --- CSS: UI FIX & ALIGNMENT ---
 st.markdown("""
     <style>
+    /* Sidebar Gizle */
     [data-testid="stSidebar"] { display: none; }
+    
+    /* Genel Padding Ayarları */
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     
-    /* Input Alanı Fontları */
+    /* Input Alanı (Terminal Hissi) */
     .stTextArea textarea { 
         font-family: 'JetBrains Mono', monospace; 
         background-color: #161b22; 
-        color: #e6edf3; 
+        color: #e6edf3;
     }
     
-    /* Buton Stilleri */
+    /* Butonları Hizalamak için Container Ayarı */
     .stButton button { 
-        height: 3em; 
+        height: 3.5em; 
         font-weight: bold; 
-        border-radius: 8px; 
+        border-radius: 8px;
+        margin-top: 10px; /* Görsel/Input ile buton arasına nefes payı */
     }
     
-    /* GÖRSEL BOYUT FIXLEME (CRITICAL UPDATE) */
-    /* Görsel ne kadar büyük olursa olsun ekranda max 600px yer kaplasın */
+    /* GÖRSEL BOYUT FIXLEME (One Page Koruması) */
     div[data-testid="stImage"] img {
-        max-height: 600px; 
+        max-height: 580px;  /* Görseli Input alanı ile aynı boya sabitliyoruz */
         width: auto;
         object-fit: contain;
         margin: 0 auto;
         display: block;
     }
     
-    /* Başlık */
     h1 { margin-bottom: 0.5rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API CONFIG (Via Streamlit Secrets) ---
+# --- 2. API CONFIG ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 else:
@@ -104,7 +103,7 @@ def apply_logic_bridge(raw_json_prompt):
     except Exception:
         return raw_json_prompt
 
-# --- 4. SAFETY & EXTRACTION (100% FAITHFUL) ---
+# --- 4. SAFETY & EXTRACTION ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -144,7 +143,9 @@ col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
     st.write("### Input")
-    user_prompt = st.text_area("CineLab JSON Input:", height=380, placeholder="Paste JSON code here...")
+    # FIX: Input alanını yükselttik (550px). Bu sayede Generate butonu aşağı itiliyor.
+    # Sağdaki görsel max-height: 580px olduğu için butonlar artık aynı hizada.
+    user_prompt = st.text_area("CineLab JSON Input:", height=550, placeholder="Paste JSON code here...")
     
     st.write("### Settings")
     if available_models:
@@ -152,11 +153,15 @@ with col_left:
     else:
         selected_model = st.text_input("Enter Model Name:", "gemini-1.5-pro")
 
-    # Generate Butonu Sol Tarafta
+    # Generate Butonu (Artık aşağıda)
     generate_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
 
 with col_right:
     st.write("### Output")
+    
+    # Placeholder: Görsel oluşmadan önce de alanın dolu görünmesini sağlar (Hizalama için)
+    output_container = st.container()
+    
     if generate_btn and user_prompt:
         try:
             with st.spinner("Processing Logic Bridge & Rendering..."):
@@ -168,29 +173,31 @@ with col_right:
             if img_res:
                 img_obj, img_bytes = img_res
                 
-                # GÖRSEL GÖSTERİMİ
-                # CSS sayesinde bu görsel max-height: 600px olacak.
-                # use_column_width=True dikeyde sınırsız uzamayı tetikler, 
-                # CSS ile bunu engelledik.
-                st.image(img_obj) 
-                
-                # KAYDET BUTONU
-                # Görselin yüksekliği sınırlandığı için bu buton hep yukarıda kalacak.
-                st.download_button(
-                    label="💾 DOWNLOAD RENDER", 
-                    data=img_bytes, 
-                    file_name="factory_render.png", 
-                    mime=mime, 
-                    use_container_width=True
-                )
+                with output_container:
+                    # GÖRSEL GÖSTERİMİ
+                    # CSS ile max-height: 580px'e sabitlendi.
+                    st.image(img_obj) 
+                    
+                    # KAYDET BUTONU
+                    # Görsel biter bitmez hemen altında belirir.
+                    # Sol taraf 550px input + settings olduğu için Generate butonu ile aynı hizaya gelir.
+                    st.download_button(
+                        label="💾 DOWNLOAD RENDER", 
+                        data=img_bytes, 
+                        file_name="factory_render.png", 
+                        mime=mime, 
+                        use_container_width=True
+                    )
             elif text_res:
                 st.warning("Model responded with text:")
                 st.code(text_res, language="text")
             else:
-                st.error("Model blocked the request.")
+                st.error("Blocked or Empty Response.")
                 
         except Exception as e:
             st.error(f"System Error: {str(e)}")
             
     elif not generate_btn:
+        # Başlangıç durumu: Sağ taraf boş kalmasın diye bir info mesajı
+        # Bu da sağ tarafın "dolu" hissettirmesini sağlar.
         st.info("System ready. Waiting for CineLab JSON...")
