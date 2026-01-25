@@ -5,13 +5,18 @@ import io
 import json
 from PIL import Image
 
-# --- 1. SETUP ---
-st.set_page_config(page_title="FactoryIR: Nano Banana", page_icon="🍌", layout="wide")
+# --- 1. SETUP & CONFIG ---
+# Fetching API Key from Streamlit Secrets
+try:
+    API_KEY = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=API_KEY)
+except Exception:
+    st.error("Error: GOOGLE_API_KEY not found in secrets.")
+    st.stop()
 
-st.title("🍌 FactoryIR: Finesse Edition v2.3")
-st.markdown("CineLab JSON analizi: Temiz stüdyo, tam boy kadraj ve *estetik* poz düzeltme.")
+st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- 2. GÜVENLİK AYARLARI (FULL UNFILTERED) ---
+# --- 2. SECURITY SETTINGS (100% FAITHFUL) ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -19,13 +24,12 @@ no_filter_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- 3. 🧠 THE LOGIC BRIDGE (İNCE İŞÇİLİK KATMANI) ---
+# --- 3. THE LOGIC BRIDGE (100% FAITHFUL) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
         recipe = data.get("cinematography_recipe", {})
         
-        # --- A. KELİME TEMİZLİĞİ (Işık Ekipmanı Avı) ---
         lp = recipe.get("phase_4_lighting_physics", {})
         for key in ["key_light", "fill_light", "back_light", "setup"]:
             if key in lp:
@@ -34,7 +38,6 @@ def apply_logic_bridge(raw_json_prompt):
                                          .replace("light stand", "invisible point source") \
                                          .replace("setup", "lighting physics")
 
-        # --- B. KADRAJ DİKTE ETME (Extreme Wide Shot Koruması) ---
         framing_rules = """
         - SHOT TYPE: Extreme Wide Shot (EWS).
         - COMPOSITION: The subject must occupy roughly 60-70% of the vertical frame height.
@@ -42,17 +45,13 @@ def apply_logic_bridge(raw_json_prompt):
         - NO CROPPING: Full body visible, centered against the seamless cyc wall.
         """
 
-        # --- C. POZ VE OBJE ESTETİĞİ (Kritik Güncelleme Burada) ---
         phase1 = recipe.get("phase_1_subject_retention", {})
         location = phase1.get("environment_override", {}).get("location", "").lower()
         notes = lp.get("director_notes", "").lower()
-        
-        # Orijinal poz detaylarını çekelim (eller cepte, kafa eğik vs.)
         original_pose_details = ", ".join(phase1.get("four_by_four_analysis", {}).get("pose", []))
 
         pose_rules = ""
         if "studio" in location and "leaning" in original_pose_details.lower():
-            # Eğer stüdyo boşsa ve 'leaning' istenmişse:
             if not any(word in notes for word in ["chair", "car", "table", "wall", "prop", "object", "block"]):
                 pose_rules = f"""
                 - POSE CORRECTION (PHYSICS): The subject cannot 'lean' against air.
@@ -63,9 +62,7 @@ def apply_logic_bridge(raw_json_prompt):
 
         refined_prompt = f"""
         ACT AS: Professional Fashion Director of Photography (Kacper Kasprzyk style).
-        
-        {json.dumps(data)} # Temizlenmiş ve detayları korunmuş JSON
-        
+        {json.dumps(data)}
         STRICT EXECUTION DIRECTIVES:
         {framing_rules}
         {pose_rules}
@@ -73,10 +70,10 @@ def apply_logic_bridge(raw_json_prompt):
         - ATMOSPHERE: High-end, minimalist, moody editorial feel.
         """
         return refined_prompt
-    except Exception as e:
+    except Exception:
         return raw_json_prompt
 
-# --- 4. YARDIMCI FONKSİYONLAR ---
+# --- 4. HELPER FUNCTIONS ---
 def safe_extract_response(response):
     try:
         parts = response.parts if hasattr(response, 'parts') else response.candidates[0].content.parts
@@ -90,47 +87,65 @@ def safe_extract_response(response):
         return None, None, None
     except: return None, None, None
 
-# --- 5. UI ---
-with st.sidebar:
-    st.header("🔑 Bağlantı")
-    api_key = st.text_input("Google API Key", type="password")
-    fetch_models_btn = st.button("Modelleri Listele")
-    if 'model_list' not in st.session_state: st.session_state.model_list = []
-    if fetch_models_btn and api_key:
-        try:
-            genai.configure(api_key=api_key)
-            models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            st.session_state.model_list = [m.name for m in models]
-        except Exception as e: st.error(f"Hata: {e}")
-    selected_model = st.selectbox("Model Seç:", st.session_state.model_list) if st.session_state.model_list else None
-
-col1, col2 = st.columns([2, 1])
-with col1:
-    user_prompt = st.text_area("📝 CineLab JSON Yapıştır:", height=350)
-
-with col2:
-    st.markdown("### ⚙️ Kontrol Paneli")
-    generate_btn = st.button("🚀 FİLTRESİZ VE ESTETİK ÜRET", type="primary", use_container_width=True)
-
-# --- 6. EXECUTION ---
+# --- 5. UI LAYOUT ---
+st.title("FactoryIR")
 st.markdown("---")
-if generate_btn:
-    if not api_key or not selected_model or not user_prompt:
-        st.warning("Eksik alanları doldur.")
-    else:
-        try:
-            with st.spinner("Logic Bridge v2.3: Estetik Poz Düzeltme Uygulanıyor..."):
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(selected_model)
-                final_prompt = apply_logic_bridge(user_prompt)
-                
-                response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
-                image_res, text_res, mime = safe_extract_response(response)
 
-                if image_res:
-                    img_obj, raw_bytes = image_res
-                    st.image(img_obj, caption="FactoryIR Finesse Output", use_container_width=True)
-                    st.download_button("💾 Görseli Kaydet", data=raw_bytes, file_name="factory_finesse.png", mime=mime)
-                elif text_res: st.info(text_res)
-                else: st.error("Görsel üretilemedi.")
-        except Exception as e: st.error(f"Hata oluştu: {str(e)}")
+# Sidebar for Model Selection
+with st.sidebar:
+    st.subheader("System Settings")
+    if 'model_list' not in st.session_state or not st.session_state.model_list:
+        try:
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            # Filtering for Image models specifically if needed, otherwise showing all
+            st.session_state.model_list = [m.split('/')[-1] for m in models] 
+        except:
+            st.session_state.model_list = ["gemini-1.5-pro-latest"] # Fallback
+
+    selected_model_display = st.selectbox("Active Model:", st.session_state.model_list)
+    # Re-map to full name for API
+    selected_model = f"models/{selected_model_display}"
+
+# Main One-Page Split Layout
+col_input, col_output = st.columns([1, 1], gap="medium")
+
+with col_input:
+    st.subheader("Input CineLab JSON")
+    user_prompt = st.text_area("Paste code here:", height=500)
+    generate_btn = st.button("GENERATE RENDER", type="primary", use_container_width=True)
+
+with col_output:
+    st.subheader("Output Terminal")
+    if generate_btn:
+        if not user_prompt:
+            st.warning("Please input JSON data.")
+        else:
+            try:
+                with st.spinner("Processing Logic Bridge & Rendering..."):
+                    model = genai.GenerativeModel(selected_model)
+                    final_prompt = apply_logic_bridge(user_prompt)
+                    
+                    response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
+                    image_res, text_res, mime = safe_extract_response(response)
+
+                    if image_res:
+                        img_obj, raw_bytes = image_res
+                        
+                        # Save button at the top of the result
+                        st.download_button(
+                            label="💾 DOWNLOAD RENDER",
+                            data=raw_bytes,
+                            file_name="factory_ir_output.png",
+                            mime=mime,
+                            use_container_width=True
+                        )
+                        
+                        st.image(img_obj, use_container_width=True)
+                    elif text_res:
+                        st.info(text_res)
+                    else:
+                        st.error("No image generated by the model.")
+            except Exception as e:
+                st.error(f"Execution Error: {str(e)}")
+    else:
+        st.info("Awaiting input to generate render...")
