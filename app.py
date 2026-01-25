@@ -8,10 +8,10 @@ from PIL import Image
 # --- 1. SETUP ---
 st.set_page_config(page_title="FactoryIR: Nano Banana", page_icon="🍌", layout="wide")
 
-st.title("🍌 FactoryIR: Nano Banana")
-st.markdown("CineLab JSON reçetesini yapıştır, Logic Bridge ile kusursuz fizik ve filtresiz üretim al.")
+st.title("🍌 FactoryIR: Nano Banana v2.1")
+st.markdown("CineLab JSON reçetesini analiz eder, hatalı poz ve kadraj seçimlerini otomatik düzeltir.")
 
-# --- 2. GÜVENLİK AYARLARI (FİLTRELERİ KALDIRMA) ---
+# --- 2. GÜVENLİK AYARLARI ---
 no_filter_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -19,121 +19,98 @@ no_filter_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- 3. 🧠 THE LOGIC BRIDGE (MANTIK KÖPRÜSÜ) ---
+# --- 3. 🧠 THE LOGIC BRIDGE (GÜNCELLENMİŞ MANTIK) ---
 def apply_logic_bridge(raw_json_prompt):
-    """Cinelab JSON'unu analiz eder ve fiziksel tutarsızlıkları düzeltir."""
     try:
         data = json.loads(raw_json_prompt)
         recipe = data.get("cinematography_recipe", {})
-        
         phase1 = recipe.get("phase_1_subject_retention", {})
         env = phase1.get("environment_override", {})
-        pose_list = phase1.get("four_by_four_analysis", {}).get("pose", [])
-        pose_str = ", ".join(pose_list).lower()
-        
         location = env.get("location", "").lower()
         notes = recipe.get("phase_4_lighting_physics", {}).get("director_notes", "")
 
-        prop_logic = ""
-        # Yaslanma (Leaning) Kontrolü
-        if "leaning" in pose_str:
-            if "studio" in location:
-                if not any(word in notes.lower() for word in ["chair", "car", "table", "wall", "prop"]):
-                    prop_logic = "\n- PHYSICAL CORRECTION: Subject is leaning. Add a minimalist, neutral studio prop (like a white geometric block) for support to prevent floating."
-                else:
-                    prop_logic = f"\n- PHYSICAL CORRECTION: Ensure the subject is realistically leaning on the mentioned prop with contact shadows."
+        # --- KURAL 1: KADRAJ (FULL-BODY) KORUMASI ---
+        framing_fix = """
+        - FRAMING RULE: MUST be a strict FULL-BODY shot. 
+        - Camera is positioned 5-7 meters away. 
+        - Show the subject from the bottom of their shoes to the top of their head. 
+        - DO NOT zoom in for textures; maintain a wide fashion editorial distance."""
 
-        invisible_gear = ""
+        # --- KURAL 2: POZ VE OBJE KORUMASI ---
+        pose_fix = ""
         if "studio" in location:
-            invisible_gear = "\n- RENDER RULE: 100% Invisible equipment. Do NOT show light stands, softboxes, cables, or flags. Only render the resulting light physics on the subject."
+            # Kullanıcı notlarda bir obje (car, chair, wall vb) belirtmediyse
+            if not any(word in notes.lower() for word in ["chair", "car", "table", "wall", "prop", "object"]):
+                pose_fix = """
+                - POSE OVERRIDE: Ignore the 'leaning' pose from the reference. 
+                - New Pose: The model must stand STRAIGHT and UPRIGHT in the center. 
+                - NO blocks, NO props, NO furniture. 100% empty space around the subject."""
+            else:
+                pose_fix = "- POSE RULE: Maintain leaning pose against the specified prop in the notes."
+
+        # --- KURAL 3: GÖRÜNMEZ EKİPMAN ---
+        invisible_gear = "\n- RENDER RULE: 100% Invisible studio equipment (no stands, no softbox edges)."
 
         refined_prompt = f"""
         ACT AS: Professional Technical Director of Photography.
-        STRICT COMPLIANCE: Follow the JSON recipe with 100% fidelity.
-        
         {raw_json_prompt}
         
-        FINAL EXECUTION RULES:
-        - WEIGHTING: Technical specs (Phase 2) and Subject DNA (Phase 1) take 80% priority.
-        - OPTICAL CHARACTER: Apply exact f-stop depth of field and sensor grain.
-        {prop_logic}
+        CRITICAL REVISIONS FOR THIS RENDER:
+        {framing_fix}
+        {pose_fix}
         {invisible_gear}
-        - OUTPUT: High-resolution cinematic visual.
+        - STICK TO: Neutral minimalist grey cyclorama background as requested.
         """
         return refined_prompt
-    except Exception:
+    except:
         return raw_json_prompt
 
-# --- 4. YARDIMCI FONKSİYON: VERİ AYIKLAMA ---
+# --- 4. YARDIMCI FONKSİYONLAR ---
 def safe_extract_response(response):
-    image_data = None
-    text_data = None
-    mime_type = None
-    
     try:
-        if hasattr(response, 'parts') and response.parts:
-            parts = response.parts
-        elif hasattr(response, 'candidates') and response.candidates:
-            parts = response.candidates[0].content.parts
-        else:
-            return None, None, None
-
+        parts = response.parts if hasattr(response, 'parts') else response.candidates[0].content.parts
         for part in parts:
             if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
                 img_bytes = part.inline_data.data
                 img = Image.open(io.BytesIO(img_bytes))
-                image_data = (img, img_bytes)
-                mime_type = part.inline_data.mime_type
-                return image_data, None, mime_type
-            
+                return (img, img_bytes), None, part.inline_data.mime_type
             if hasattr(part, 'text') and part.text:
-                text_data = part.text
-        return None, text_data, "text/plain"
-    except:
+                return None, part.text, "text/plain"
         return None, None, None
+    except: return None, None, None
 
-# --- 5. SIDEBAR: AYARLAR ---
+# --- 5. SIDEBAR & UI ---
 with st.sidebar:
     st.header("🔑 Bağlantı")
     api_key = st.text_input("Google API Key", type="password")
     fetch_models_btn = st.button("Modelleri Listele")
-    
-    if 'model_list' not in st.session_state:
-        st.session_state.model_list = []
-
+    if 'model_list' not in st.session_state: st.session_state.model_list = []
     if fetch_models_btn and api_key:
         try:
             genai.configure(api_key=api_key)
             models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             st.session_state.model_list = [m.name for m in models]
-            st.success("Modeller listelendi.")
-        except Exception as e:
-            st.error(f"Hata: {e}")
-
+        except Exception as e: st.error(f"Hata: {e}")
     selected_model = st.selectbox("Model Seç:", st.session_state.model_list) if st.session_state.model_list else None
 
-# --- 6. ANA EKRAN ---
 col1, col2 = st.columns([2, 1])
 with col1:
-    user_prompt = st.text_area("📝 CineLab Prompt Girişi:", height=350, placeholder="JSON reçetesini buraya yapıştır...")
+    user_prompt = st.text_area("📝 CineLab Prompt Girişi:", height=350)
 
 with col2:
     st.markdown("### ⚙️ Kontrol")
-    st.write("Aktif Model:", selected_model if selected_model else "Seçilmedi")
     generate_btn = st.button("🚀 FİLTRESİZ ÜRET", type="primary", use_container_width=True)
 
-# --- 7. ÜRETİM MANTIĞI ---
+# --- 6. EXECUTION ---
 st.markdown("---")
 if generate_btn:
     if not api_key or not selected_model or not user_prompt:
-        st.warning("Lütfen tüm alanları doldur.")
+        st.warning("Eksik alanlar var.")
     else:
         try:
-            with st.spinner("Logic Bridge Denetleniyor & Üretiliyor..."):
+            with st.spinner("Logic Bridge Zorlanıyor: Tam Boy & Dik Duruş..."):
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel(selected_model)
-                
-                # Logic Bridge Uygula
                 final_prompt = apply_logic_bridge(user_prompt)
                 
                 response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
@@ -141,12 +118,8 @@ if generate_btn:
 
                 if image_res:
                     img_obj, raw_bytes = image_res
-                    st.image(img_obj, caption="FactoryIR Output", use_container_width=True)
-                    st.download_button("💾 Kaydet", data=raw_bytes, file_name="output.png", mime=mime)
-                elif text_res:
-                    st.info("Model metin yanıtı döndürdü:")
-                    st.write(text_res)
-                else:
-                    st.error("Görsel oluşturulamadı. Filtreye takılmış veya model desteklemiyor olabilir.")
-        except Exception as e:
-            st.error(f"Üretim hatası: {e}")
+                    st.image(img_obj, caption="FactoryIR Fixed Output", use_container_width=True)
+                    st.download_button("💾 Kaydet", data=raw_bytes, file_name="fixed_output.png", mime=mime)
+                elif text_res: st.info(text_res)
+                else: st.error("Sonuç alınamadı.")
+        except Exception as e: st.error(f"Hata: {e}")
