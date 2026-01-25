@@ -8,14 +8,17 @@ from PIL import Image
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- CSS: UI FIX & ALIGNMENT ---
+# --- CSS: ONE PAGE & ALIGNMENT MASTER FIX ---
 st.markdown("""
     <style>
     /* Sidebar Gizle */
     [data-testid="stSidebar"] { display: none; }
     
-    /* Genel Padding Ayarları */
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    /* Üst ve Alt Boşlukları Azalt (Compact Mode) */
+    .block-container { 
+        padding-top: 1rem; 
+        padding-bottom: 1rem; 
+    }
     
     /* Input Alanı (Terminal Hissi) */
     .stTextArea textarea { 
@@ -24,24 +27,26 @@ st.markdown("""
         color: #e6edf3;
     }
     
-    /* Butonları Hizalamak için Container Ayarı */
+    /* Buton Stilleri */
     .stButton button { 
-        height: 3.5em; 
+        height: 3em; 
         font-weight: bold; 
         border-radius: 8px;
-        margin-top: 10px; /* Görsel/Input ile buton arasına nefes payı */
     }
     
-    /* GÖRSEL BOYUT FIXLEME (One Page Koruması) */
+    /* GÖRSEL BOYUT FIXLEME (Hizalama Kilidi) */
+    /* Input alanı 480px olacak, görseli de max 480px'e sabitliyoruz. */
+    /* Böylece sol ve sağ sütun eşit boyda biter, butonlar hizalanır. */
     div[data-testid="stImage"] img {
-        max-height: 580px;  /* Görseli Input alanı ile aynı boya sabitliyoruz */
+        max-height: 480px;  
         width: auto;
         object-fit: contain;
         margin: 0 auto;
         display: block;
     }
     
-    h1 { margin-bottom: 0.5rem; }
+    h1 { margin-bottom: 0.2rem; font-size: 2rem; }
+    h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; font-size: 1.2rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -52,7 +57,7 @@ else:
     st.error("Error: GOOGLE_API_KEY not found in secrets.")
     st.stop()
 
-# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL - DO NOT TOUCH) ---
+# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
@@ -143,28 +148,29 @@ col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
     st.write("### Input")
-    # FIX: Input alanını yükselttik (550px). Bu sayede Generate butonu aşağı itiliyor.
-    # Sağdaki görsel max-height: 580px olduğu için butonlar artık aynı hizada.
-    user_prompt = st.text_area("CineLab JSON Input:", height=550, placeholder="Paste JSON code here...")
+    # FIX: 480px ideal yükseklik. Scroll gerektirmez, One Page hissini korur.
+    user_prompt = st.text_area("CineLab JSON Input:", height=480, placeholder="Paste JSON code here...", label_visibility="collapsed")
     
-    st.write("### Settings")
-    if available_models:
-        selected_model = st.selectbox("Select Active Model:", available_models, index=0)
-    else:
-        selected_model = st.text_input("Enter Model Name:", "gemini-1.5-pro")
-
-    # Generate Butonu (Artık aşağıda)
-    generate_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
+    # Yer kazanmak için Settings başlığını kaldırdık, direkt seçim kutusu
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        if available_models:
+            selected_model = st.selectbox("Model", available_models, index=0, label_visibility="collapsed")
+        else:
+            selected_model = st.text_input("Model", "gemini-1.5-pro", label_visibility="collapsed")
+    
+    with c2:
+        # Generate Butonu (Sol altta)
+        generate_btn = st.button("🚀 GENERATE", type="primary", use_container_width=True)
 
 with col_right:
     st.write("### Output")
     
-    # Placeholder: Görsel oluşmadan önce de alanın dolu görünmesini sağlar (Hizalama için)
     output_container = st.container()
     
     if generate_btn and user_prompt:
         try:
-            with st.spinner("Processing Logic Bridge & Rendering..."):
+            with st.spinner("Rendering..."):
                 final_prompt = apply_logic_bridge(user_prompt)
                 model = genai.GenerativeModel(selected_model)
                 response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
@@ -174,13 +180,12 @@ with col_right:
                 img_obj, img_bytes = img_res
                 
                 with output_container:
-                    # GÖRSEL GÖSTERİMİ
-                    # CSS ile max-height: 580px'e sabitlendi.
+                    # GÖRSEL (CSS ile max-height: 480px'e kilitli)
                     st.image(img_obj) 
                     
                     # KAYDET BUTONU
-                    # Görsel biter bitmez hemen altında belirir.
-                    # Sol taraf 550px input + settings olduğu için Generate butonu ile aynı hizaya gelir.
+                    # Görsel 480px, Input 480px olduğu için bu buton 
+                    # sol taraftaki buton grubuyla aynı hizada başlar.
                     st.download_button(
                         label="💾 DOWNLOAD RENDER", 
                         data=img_bytes, 
@@ -189,15 +194,13 @@ with col_right:
                         use_container_width=True
                     )
             elif text_res:
-                st.warning("Model responded with text:")
+                st.warning("Text Response:")
                 st.code(text_res, language="text")
             else:
-                st.error("Blocked or Empty Response.")
+                st.error("Blocked.")
                 
         except Exception as e:
-            st.error(f"System Error: {str(e)}")
+            st.error(f"Error: {str(e)}")
             
     elif not generate_btn:
-        # Başlangıç durumu: Sağ taraf boş kalmasın diye bir info mesajı
-        # Bu da sağ tarafın "dolu" hissettirmesini sağlar.
-        st.info("System ready. Waiting for CineLab JSON...")
+        st.info("Waiting for CineLab JSON...")
