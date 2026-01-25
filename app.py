@@ -4,76 +4,28 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import io
 import json
 from PIL import Image
-import re
 
-# 1. PAGE CONFIG
+# --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="FactoryIR", layout="wide")
 
-# --- CUSTOM CSS ---
+# CSS: Sidebari gizle ve terminal tarzı fontları ayarla
 st.markdown("""
     <style>
-    div[data-testid="column"] { overflow: hidden; }
-    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; }
+    [data-testid="stSidebar"] { display: none; }
     .main { padding-top: 2rem; }
-    .stButton > button { width: 100%; }
+    .stTextArea textarea { font-family: 'JetBrains Mono', monospace; background-color: #161b22; color: #e6edf3; }
+    .stButton button { height: 3em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SECRETS & API SETUP
-@st.cache_resource
-def setup_genai():
-    try:
-        if "GOOGLE_API_KEY" in st.secrets:
-            api_key = st.secrets["GOOGLE_API_KEY"]
-            genai.configure(api_key=api_key)
-            return True
-        return False
-    except Exception:
-        return False
+# --- 2. API CONFIG (Via Streamlit Secrets) ---
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("Error: GOOGLE_API_KEY not found in secrets. Please check your configuration.")
+    st.stop()
 
-api_ready = setup_genai()
-
-# 3. MODEL FILTERING FUNCTION
-@st.cache_data(ttl=3600) # Cache results for 1 hour to avoid repeated API calls
-def get_filtered_models():
-    try:
-        if not api_ready:
-            return ["models/gemini-3.0-pro-latest"] # Fallback if API not ready
-
-        # List models and filter for those supporting generateContent (likely image models)
-        all_models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # Filter for "gemini-3.0" and above using regex
-        # Pattern matches "gemini-" followed by a version number >= 3 (e.g., 3.0, 3.5, 4.0)
-        filtered_models = []
-        version_pattern = re.compile(r"gemini-(\d+)\.(\d+)")
-        
-        for m in all_models:
-            match = version_pattern.search(m.name)
-            if match:
-                major_version = int(match.group(1))
-                if major_version >= 3:
-                    filtered_models.append(m.name)
-        
-        if not filtered_models:
-             # Fallback if no models match >= 3.0
-            return ["models/gemini-3.0-pro-latest"] 
-            
-        return filtered_models
-    except Exception as e:
-        # Fallback in case of any API error during listing
-        # print(f"Error fetching models: {e}") # For debugging
-        return ["models/gemini-3.0-pro-latest"]
-
-# 4. SECURITY SETTINGS (100% FAITHFUL)
-no_filter_settings = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
-
-# 5. THE LOGIC BRIDGE (100% FAITHFUL)
+# --- 3. 🧠 THE LOGIC BRIDGE (100% FAITHFUL) ---
 def apply_logic_bridge(raw_json_prompt):
     try:
         data = json.loads(raw_json_prompt)
@@ -109,9 +61,28 @@ def apply_logic_bridge(raw_json_prompt):
                 - NO FURNITURE: No blocks, no props. Just the subject standing confidently.
                 """
 
-        refined_prompt = f"ACT AS: Professional Fashion Director (Kacper Kasprzyk style).\n{json.dumps(data)}\n{framing_rules}\n{pose_rules}\n- RENDER: 100% Invisible studio equipment.\n- ATMOSPHERE: High-end editorial."
+        refined_prompt = f"""
+        ACT AS: Professional Fashion Director of Photography (Kacper Kasprzyk style).
+        
+        {json.dumps(data)}
+        
+        STRICT EXECUTION DIRECTIVES:
+        {framing_rules}
+        {pose_rules}
+        - RENDER RULE: 100% Invisible studio equipment. Only render the light effect.
+        - ATMOSPHERE: High-end, minimalist, moody editorial feel.
+        """
         return refined_prompt
-    except: return raw_json_prompt
+    except Exception:
+        return raw_json_prompt
+
+# --- 4. SAFETY & EXTRACTION (100% FAITHFUL) ---
+no_filter_settings = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
 
 def safe_extract_response(response):
     try:
@@ -119,64 +90,63 @@ def safe_extract_response(response):
         for part in parts:
             if hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith('image/'):
                 img_bytes = part.inline_data.data
-                return (Image.open(io.BytesIO(img_bytes)), img_bytes), part.inline_data.mime_type
+                img = Image.open(io.BytesIO(img_bytes))
+                return (img, img_bytes), None, part.inline_data.mime_type
             if hasattr(part, 'text') and part.text:
-                return part.text, "text/plain"
-        return None, None
-    except: return None, None
+                return None, part.text, "text/plain"
+        return None, None, None
+    except: return None, None, None
 
-# 6. UI LAYOUT
+# --- 5. UI LAYOUT & EXECUTION ---
 st.title("FactoryIR")
 st.markdown("---")
 
-if not api_ready:
-    st.error("🔑 API Key Missing! Please add GOOGLE_API_KEY to your Streamlit Secrets.")
-    st.info("Local: Create .streamlit/secrets.toml | Cloud: App Settings > Secrets")
-    st.stop()
+# API'den canlı model listesini çekme
+@st.cache_data
+def get_live_models():
+    try:
+        return [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    except:
+        return ["models/gemini-1.5-flash"] # Fallback
 
-# Get filtered model list
-filtered_models = get_filtered_models()
+available_models = get_live_models()
 
-# Main Interface Split
+# Split Layout (Left: Input, Right: Output)
 col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
     st.write("### Input")
-    user_prompt = st.text_area("CineLab JSON:", height=400, placeholder="Paste your JSON here...")
+    user_prompt = st.text_area("Paste CineLab JSON here:", height=500, placeholder="{ 'type': 'uploaded file' ... }")
     
-    st.write("### Model Selection")
-    # Dropdown for models >= 3.0
-    selected_model_name = st.selectbox("Select Model:", filtered_models, label_visibility="collapsed")
+    # Model seçimi doğrudan butonun üstünde
+    selected_model = st.selectbox("Select Active Model:", available_models)
     
     generate_btn = st.button("🚀 GENERATE RENDER", type="primary", use_container_width=True)
 
 with col_right:
     st.write("### Output")
-    if generate_btn and user_prompt:
-        try:
-            # Using spinner instead of status for a cleaner look in the column
-            with st.spinner("FactoryIR Engine Running..."):
-                # 1. Apply Logic Bridge
-                final_prompt = apply_logic_bridge(user_prompt)
-                
-                # 2. Request Render
-                model = genai.GenerativeModel(selected_model_name)
-                response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
-                
-                # 3. Extract Result
-                res, mime = safe_extract_response(response)
+    if generate_btn:
+        if not user_prompt:
+            st.warning("Please provide CineLab JSON input.")
+        else:
+            try:
+                with st.spinner("FactoryIR: Applying Logic Bridge & Rendering..."):
+                    model = genai.GenerativeModel(selected_model)
+                    final_prompt = apply_logic_bridge(user_prompt)
+                    
+                    response = model.generate_content(final_prompt, safety_settings=no_filter_settings)
+                    image_res, text_res, mime = safe_extract_response(response)
 
-            if isinstance(res, tuple): # Image returned
-                img_obj, img_bytes = res
-                # SAVE BUTTON AT THE TOP OF THE IMAGE
-                st.download_button("💾 DOWNLOAD IMAGE", data=img_bytes, file_name="render.png", mime=mime, use_container_width=True)
-                st.image(img_obj, use_container_width=True)
-            elif res:
-                st.info(res)
-            else:
-                st.error("Model could not generate an image.")
-                
-        except Exception as e:
-            st.error(f"Error: {e}")
-    elif not generate_btn:
-        st.info("Ready for input. The render will appear here.")
+                if image_res:
+                    img_obj, raw_bytes = image_res
+                    # Save button at the top for efficiency
+                    st.download_button("💾 DOWNLOAD RENDER", data=raw_bytes, file_name="factory_render.png", mime=mime, use_container_width=True)
+                    st.image(img_obj, caption="FactoryIR | Final Render", use_container_width=True)
+                elif text_res:
+                    st.info(text_res)
+                else:
+                    st.error("System failed to generate an image. Check API limits or JSON content.")
+            except Exception as e:
+                st.error(f"Critical Error: {str(e)}")
+    else:
+        st.info("Awaiting input to start the engine.")
